@@ -16,6 +16,7 @@ import os
 import posixpath
 from pathlib import Path
 import re
+import shutil
 import sys
 import tempfile
 import textwrap
@@ -24,13 +25,16 @@ import xml.etree.ElementTree as ET
 from datetime import datetime, timezone
 from collections import Counter
 
-VERSION = "0.2.0"  # Extractor/cache semantics changed: Office metadata and optional OCR.
+VERSION = "0.4.0"  # Office extraction, OCR, and cache processing semantics.
 DEFAULT_CACHE = Path.cwd() / ".fidelityflow" / "cache"
 DEFAULT_ARCHIVE = Path.cwd() / ".fidelityflow" / "archive"
 CHUNK_CHARS = 7000
 MAX_OOXML_XML_MEMBER_BYTES = 64 * 1024 * 1024  # Per-part limit.
 MAX_OOXML_TOTAL_BYTES = 256 * 1024 * 1024
 MAX_OOXML_MEMBERS = 10000
+OCR_IMAGE_SUFFIXES = {".png", ".jpg", ".jpeg", ".tif", ".tiff", ".bmp", ".webp"}
+DEFAULT_OCR_DPI = 180
+DEFAULT_OCR_MAX_PAGES = 100
 
 
 def sha256_bytes(data: bytes) -> str:
@@ -619,8 +623,7 @@ def parse_pdf(
 
 def expected_extractor(path: Path, ocr: bool = False) -> str | None:
     suffix = normalized_suffix(path)
-    image_suffixes = {".png", ".jpg", ".jpeg", ".tif", ".tiff", ".bmp", ".webp"}
-    if suffix in image_suffixes:
+    if suffix in OCR_IMAGE_SUFFIXES:
         return "image-ocr-tesseract-v1" if ocr else None
     if suffix == ".docx":
         return "docx-stdlib-v2"
@@ -649,8 +652,7 @@ def extract_file(
     ocr_max_pages: int = 100,
 ) -> tuple[str, list[str], str]:
     suffix = normalized_suffix(path)
-    image_suffixes = {".png", ".jpg", ".jpeg", ".tif", ".tiff", ".bmp", ".webp"}
-    if suffix in image_suffixes:
+    if suffix in OCR_IMAGE_SUFFIXES:
         if not ocr:
             raise RuntimeError("Image files require explicit --ocr and the optional OCR dependencies.")
         engine = _load_ocr_engine()
@@ -784,13 +786,21 @@ def cmd_ingest(args: argparse.Namespace) -> int:
         print(f"Error: file not found: {path}", file=sys.stderr)
         return 2
     raw_hash = sha256_file(path)
-    extractor_expected = expected_extractor(path)
+    ocr_enabled = bool(getattr(args, "ocr", False))
+    ocr_lang = str(getattr(args, "ocr_lang", "eng"))
+    ocr_dpi = int(getattr(args, "ocr_dpi", DEFAULT_OCR_DPI))
+    ocr_max_pages = int(getattr(args, "ocr_max_pages", DEFAULT_OCR_MAX_PAGES))
+    extractor_expected = expected_extractor(path, ocr=ocr_enabled)
     if extractor_expected is None:
-        print(f"Extraction failed: unsupported file type: {path.suffix or '[no extension]'}", file=sys.stderr)
+        message = f"unsupported file type: {path.suffix or '[no extension]'}"
+        if normalized_suffix(path) in OCR_IMAGE_SUFFIXES and not ocr_enabled:
+            message = "image files require --ocr; install the optional OCR dependencies and Tesseract first"
+        print(f"Extraction failed: {message}", file=sys.stderr)
         return 3
     # Include the extractor identity in the cache key. Identical ZIP bytes
     # named .docx and .pptx must never share an incompatible extracted view.
-    cache_key = sha256_bytes(f"{raw_hash}|{extractor_expected}|{VERSION}|chunk={args.chunk_chars}".encode("utf-8"))
+    processing_identity = f"ocr={int(ocr_enabled)}|lang={ocr_lang}|dpi={ocr_dpi}|max_pages={ocr_max_pages}"
+    cache_key = sha256_bytes(f"{raw_hash}|{extractor_expected}|{VERSION}|chunk={args.chunk_chars}|{processing_identity}".encode("utf-8"))
     cache_root = default_cache_dir(args.cache_dir)
     doc_dir = cache_root / "documents" / cache_key
     manifest_path = doc_dir / "manifest.json"
@@ -813,7 +823,10 @@ def cmd_ingest(args: argparse.Namespace) -> int:
         except (OSError, json.JSONDecodeError):
             pass
     try:
-        text, notes, extractor = extract_file(path)
+        text, notes, extractor = extract_file(
+            path, ocr=ocr_enabled, ocr_lang=ocr_lang,
+            ocr_dpi=ocr_dpi, ocr_max_pages=ocr_max_pages,
+        )
     except Exception as exc:
         print(f"Extraction failed: {exc}", file=sys.stderr)
         return 3
@@ -849,6 +862,7 @@ def cmd_ingest(args: argparse.Namespace) -> int:
         "line_count": text.count("\n") + (1 if text else 0),
         "chunk_count": len(chunks),
         "chunk_chars": args.chunk_chars,
+        "processing": {"ocr": ocr_enabled, "ocr_lang": ocr_lang, "ocr_dpi": ocr_dpi, "ocr_max_pages": ocr_max_pages},
         "warnings": notes,
         "content_file": "content.txt",
         "chunks_file": "chunks.jsonl",
@@ -979,7 +993,7 @@ def cmd_show(args: argparse.Namespace) -> int:
     return 0
 
 
-def supported_files(root: Path, cache_root: Path | None = None):
+def supported_files(root: Path, cache_root: Path | None = None, include_images: bool = False):
     """Yield supported files while pruning ignored directories before descent."""
     excluded = {".git", ".fidelityflow", ".venv", "venv", "node_modules",
                 "__pycache__", ".idea", ".vscode", "dist", "build", "target",
@@ -990,6 +1004,8 @@ def supported_files(root: Path, cache_root: Path | None = None):
                 ".tsx", ".jsx", ".java", ".go", ".rs", ".c", ".h",
                 ".cpp", ".cs", ".sql", ".sh", ".ps1", ".toml", ".ini",
                 ".cfg", ".properties", ".diff", ".patch", ".env.example"}
+    if include_images:
+        suffixes.update(OCR_IMAGE_SUFFIXES)
     cache_resolved = cache_root.resolve() if cache_root is not None else None
     for current, dirnames, filenames in os.walk(root, topdown=True, followlinks=False):
         current_path = Path(current)
@@ -1022,10 +1038,15 @@ def cmd_ingest_dir(args: argparse.Namespace) -> int:
         print(f"Error: directory not found: {root}", file=sys.stderr)
         return 2
     cache_root = default_cache_dir(args.cache_dir)
-    files = list(supported_files(root, cache_root))
+    files = list(supported_files(root, cache_root, include_images=bool(getattr(args, "ocr", False))))
     processed = cache_hits = errors = 0
     for path in files:
-        namespace = argparse.Namespace(path=str(path), cache_dir=args.cache_dir, chunk_chars=args.chunk_chars)
+        namespace = argparse.Namespace(
+            path=str(path), cache_dir=args.cache_dir, chunk_chars=args.chunk_chars,
+            ocr=getattr(args, "ocr", False), ocr_lang=getattr(args, "ocr_lang", "eng"),
+            ocr_dpi=getattr(args, "ocr_dpi", DEFAULT_OCR_DPI),
+            ocr_max_pages=getattr(args, "ocr_max_pages", DEFAULT_OCR_MAX_PAGES),
+        )
         captured = io.StringIO()
         with contextlib.redirect_stdout(captured):
             status = cmd_ingest(namespace)
@@ -1059,8 +1080,17 @@ def cmd_doctor(args: argparse.Namespace) -> int:
         "python": sys.version.split()[0],
         "cache_dir": str(default_cache_dir(args.cache_dir)),
         "pypdf_available": False,
-        "supported_extractors": ["text", "Markdown", "CSV/TSV", "JSON/JSONL", "YAML", "XML/HTML", "source code", "DOCX", "XLSX", "PPTX"],
-        "limitations": ["PDF requires optional pypdf", "scanned PDFs and image OCR are not processed", "legacy .doc/.xls/.ppt are unsupported", "visual layout, charts, macros and embedded objects may need native inspection"],
+        "supported_extractors": [
+            "text", "Markdown", "CSV/TSV", "JSON/JSONL", "YAML",
+            "XML/HTML", "source code", "DOCX", "XLSX", "PPTX",
+        ],
+        "limitations": [
+            "PDF text extraction requires optional pypdf",
+            "image and scanned-page OCR requires the optional ocr extra plus the Tesseract executable and language data",
+            "OCR is opt-in with --ocr and does not reconstruct visual layout",
+            "legacy .doc/.xls/.ppt are unsupported",
+            "visual layout, charts, macros, and embedded objects may need native inspection",
+        ],
     }
     try:
         import pypdf  # type: ignore
@@ -1068,10 +1098,17 @@ def cmd_doctor(args: argparse.Namespace) -> int:
         info["pypdf_version"] = getattr(pypdf, "__version__", "unknown")
     except ImportError:
         pass
+    try:
+        engine = _load_ocr_engine()
+        info["ocr"] = engine.doctor()
+        if info["ocr"].get("ocr_ready_for_images"):
+            info["supported_extractors"].append("image OCR (opt-in)")
+        if info["ocr"].get("ocr_ready_for_scanned_pdfs"):
+            info["supported_extractors"].append("scanned PDF OCR (opt-in)")
+    except Exception as exc:
+        info["ocr"] = {"available": False, "reason": str(exc)}
     print(json.dumps(info, ensure_ascii=False, indent=2))
     return 0
-
-
 def archive_dir(value: str | None) -> Path:
     return Path(value).expanduser().resolve() if value else DEFAULT_ARCHIVE.resolve()
 
@@ -1132,11 +1169,19 @@ def make_parser() -> argparse.ArgumentParser:
     ingest.add_argument("path")
     ingest.add_argument("--cache-dir")
     ingest.add_argument("--chunk-chars", type=int, default=CHUNK_CHARS)
+    ingest.add_argument("--ocr", action="store_true", help="OCR standalone images and sparse-text PDF pages (requires optional OCR stack)")
+    ingest.add_argument("--ocr-lang", default="eng", help="Tesseract language or language combination, e.g. eng or ara+eng")
+    ingest.add_argument("--ocr-dpi", type=int, default=DEFAULT_OCR_DPI, help="PDF rasterization DPI for OCR (100-300)")
+    ingest.add_argument("--ocr-max-pages", type=int, default=DEFAULT_OCR_MAX_PAGES, help="maximum sparse-text PDF pages to OCR (1-500)")
     ingest.set_defaults(func=cmd_ingest)
     ingest_dir = sub.add_parser("ingest-dir", help="Recursively ingest supported files, excluding common generated/vendor folders")
     ingest_dir.add_argument("path")
     ingest_dir.add_argument("--cache-dir")
     ingest_dir.add_argument("--chunk-chars", type=int, default=CHUNK_CHARS)
+    ingest_dir.add_argument("--ocr", action="store_true", help="include image files and OCR sparse-text PDF pages")
+    ingest_dir.add_argument("--ocr-lang", default="eng", help="Tesseract language or language combination, e.g. eng or ara+eng")
+    ingest_dir.add_argument("--ocr-dpi", type=int, default=DEFAULT_OCR_DPI, help="PDF rasterization DPI for OCR (100-300)")
+    ingest_dir.add_argument("--ocr-max-pages", type=int, default=DEFAULT_OCR_MAX_PAGES, help="maximum sparse-text PDF pages to OCR (1-500)")
     ingest_dir.set_defaults(func=cmd_ingest_dir)
     ls = sub.add_parser("list", help="List cached source files")
     ls.add_argument("--cache-dir")
@@ -1177,6 +1222,12 @@ def main(argv: list[str] | None = None) -> int:
         parser.error("--top-k must be between 1 and 50")
     if getattr(args, "max_chars", 100) < 100:
         parser.error("--max-chars must be at least 100")
+    if getattr(args, "ocr_dpi", DEFAULT_OCR_DPI) < 100 or getattr(args, "ocr_dpi", DEFAULT_OCR_DPI) > 300:
+        parser.error("--ocr-dpi must be between 100 and 300")
+    if getattr(args, "ocr_max_pages", DEFAULT_OCR_MAX_PAGES) < 1 or getattr(args, "ocr_max_pages", DEFAULT_OCR_MAX_PAGES) > 500:
+        parser.error("--ocr-max-pages must be between 1 and 500")
+    if getattr(args, "ocr_lang", "eng") and not re.fullmatch(r"[A-Za-z0-9_+.-]+", args.ocr_lang):
+        parser.error("--ocr-lang must contain only language codes separated by +")
     return args.func(args)
 
 
