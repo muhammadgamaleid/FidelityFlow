@@ -24,6 +24,8 @@ Anthropic currently lists Plugins for Pro, Max, Ultra, Team, and Enterprise; Fre
 3. Select dist/fidelityflow-plugin.zip.
 4. Enable FidelityFlow.
 
+Because the Plugin bundles a Skill, keep **Code execution and file creation** enabled for its file-processing commands.
+
 The Plugin archive wraps the same Skill in a Claude plugin manifest. The current Plugin package contains a Skill only. It does not add a hosted MCP server, chat hooks, or sub-agents. Plugin hooks and sub-agents do not run in ordinary Claude web chat.
 
 Official references:

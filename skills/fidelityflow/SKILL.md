@@ -1,6 +1,6 @@
 ---
 name: fidelityflow
-description: Reduce avoidable Claude context use by indexing large files, retrieving relevant excerpts, and conservatively filtering duplicate tool output; preserve originals and task quality.
+description: Reduce avoidable Claude context use with cached file indexing and relevant excerpts; optionally filter exact duplicate Claude Code tool output while preserving originals and task quality.
 ---
 
 # FidelityFlow
