@@ -1,4 +1,4 @@
-# FidelityFlow v0.3.0
+# FidelityFlow v0.3.1
 **Unified Context & Project Learning Toolkit for Claude.ai & Claude Code**
 
 ---
@@ -40,13 +40,13 @@ FidelityFlow v0.3.0 unifies two powerful eras:
 1. **Enable capabilities:**  
    **Settings → Capabilities** → enable **Code execution & file creation**.
 2. **Install the Skill:**  
-   - Click **Customize → Skills → Create skill**.  
-   - Zip `skills/fidelityflow/` → `fidelityflow.zip`.  
-   - Upload and enable FidelityFlow.
+   - From the FidelityFlow repository checkout, run `python build_release.py --check`.
+   - Click **Customize → Skills → Create skill** and upload `dist/fidelityflow-claude-ai.zip`.
+   - Enable FidelityFlow.
 3. **Use in chat:**
-   ```
-   fidelityflow ingest "/exact/path/to/report.pdf"
-   fidelityflow search --query "revenue projection" --top-k 3
+   ```bash
+   python fidelityflow/scripts/fidelityflow.py ingest "/exact/path/to/report.pdf"
+   python fidelityflow/scripts/fidelityflow.py search --query "revenue projection" --top-k 3
    ```
    > ⚠️ Cache lifetime is limited to the current VM session. For persistent memory, use Claude Code or native Project Knowledge.
 
@@ -55,8 +55,8 @@ FidelityFlow v0.3.0 unifies two powerful eras:
 ### B. On Claude Code (CLI)
 
 ```bash
-cd fidelityflow-0.3.0
-python -m pip install -e .
+cd FidelityFlow
+python -m pip install -e ".[pdf]"
 ```
 
 Verify and start:
@@ -179,9 +179,9 @@ fidelityflow search-archive --ref "pytest output" --query "FAILED test_xyz"
 ## 🚀 Quick Setup (Code Example)
 
 ```bash
-git clone https://github.com/your-org/fidelityflow
-cd fidelityflow-0.3.0
-python -m pip install -e .
+git clone https://github.com/muhammadgamaleid/FidelityFlow.git
+cd FidelityFlow
+python -m pip install -e ".[pdf]"
 
 # Check the environment
 fidelityflow doctor
@@ -207,3 +207,7 @@ fflearn recall
 ---
 
 **This README targets both non-technical users (via Claude.ai) and technical developers (via CLI).** Features are clearly labeled where they are fully functional versus limited by platform scope.
+
+### Release validation
+
+Run `python build_release.py --check` to validate Skill references and create `dist/fidelityflow-claude-ai.zip`. Install the optional Claude Code hooks with `python install.py --scope user --enable-output-hook`. Use `--hook-only` to install hooks without copying the Skill.

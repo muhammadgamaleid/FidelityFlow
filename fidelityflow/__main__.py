@@ -1,90 +1,74 @@
 #!/usr/bin/env python3
-"""Entry point for FidelityFlow v0.3.0 as a unified command-line tool.
+"""Unified command-line entry point for FidelityFlow."""
 
-Combined functionality:
-- File extraction, indexing, and search (from core file processing)
-- Evidence-backed project memory (from learning module)
-"""
+from __future__ import annotations
 
-import argparse
 import sys
-from pathlib import Path
 
-# Import from learning module
-sys.path.insert(0, str(Path(__file__).resolve().parent / "learning"))
+from . import __version__
+from .learning.cli import main as learning_main
+
+LEARNING_COMMANDS = {
+    "observe", "recall", "candidates", "confirm", "retire", "forget", "stats",
+}
+FILE_COMMANDS = {
+    "doctor", "ingest", "ingest-dir", "list", "search", "show",
+    "show-archive", "search-archive",
+}
 
 
-def main(argv=None):
-    parser = argparse.ArgumentParser(
-        prog="fidelityflow",
-        description="Unified tool for file processing, indexing, and project learning."
-    )
-    sub = parser.add_subparsers(dest="command", required=True)
+def _help() -> None:
+    print(f"""FidelityFlow {__version__}
 
-    # Learning commands (from fidelityflow_learning.cli)
-    obs = sub.add_parser("observe", help="Record a small fact with evidence")
-    obs.add_argument("--key", required=True, help="Fact identifier (e.g., test.command)")
-    obs.add_argument("--value", required=True, help="The fact/value to record")
-    obs.add_argument("--session", default=None, help="Session ID (or set CLAUDE_SESSION_ID)")
-    obs.add_argument("--source", default="manual", help="Source of the observation")
-    obs.add_argument("--evidence", required=True, help="Evidence supporting the fact")
-    obs.add_argument("--min-sessions", type=int, default=2, help="Sessions needed for promotion (2-10)")
+Unified file processing and evidence-backed project memory.
 
-    recall = sub.add_parser("recall", help="Recall confirmed project facts")
-    recall.add_argument("--query", default="", help="Optional search query")
-    recall.add_argument("--limit", type=int, default=12, help="Max results (1-30)")
+Usage:
+  fidelityflow <command> [options]
 
-    sub.add_parser("candidates", help="List facts awaiting confirmation")
+File processing:
+  doctor          Check Python runtime and optional extractors
+  ingest          Extract and cache one source file
+  ingest-dir      Recursively index a directory
+  list            List indexed documents
+  search          Search indexed document chunks
+  show            Retrieve a complete indexed chunk
+  show-archive    Recover an archived Bash output
+  search-archive  Search an archived Bash output
 
-    confirm = sub.add_parser("confirm", help="Manually confirm a candidate")
-    confirm.add_argument("--key", required=True)
-    confirm.add_argument("--value", required=True)
+Project memory:
+  observe         Record a fact with evidence
+  recall          Recall confirmed facts
+  candidates      List facts awaiting confirmation
+  confirm         Manually resolve a conflicting fact
+  retire          Retire a fact
+  forget          Delete this project's learned data
+  stats           Show local memory counts
 
-    retire = sub.add_parser("retire", help="Retire an outdated fact")
-    retire.add_argument("--key", required=True)
-    retire.add_argument("--value")
+Run 'fidelityflow <command> --help' for command-specific options.
+For PDF extraction, install: python -m pip install 'fidelityflow[pdf]'
+""")
 
-    forget = sub.add_parser("forget", help="Delete this project's learned data")
-    forget.add_argument("--key")
 
-    sub.add_parser("stats", help="Show local counts")
+def main(argv: list[str] | None = None) -> int:
+    args = list(sys.argv[1:] if argv is None else argv)
+    if not args or args[0] in {"-h", "--help"}:
+        _help()
+        return 0
+    if args[0] in {"--version", "-V"}:
+        print(__version__)
+        return 0
 
-    # File processing commands
-    doctor = sub.add_parser("doctor", help="Check runtime and extractor availability")
-    doctor.add_argument("--cache-dir", help="Cache directory path")
+    command = args[0]
+    if command in LEARNING_COMMANDS:
+        return learning_main(args)
+    if command in FILE_COMMANDS:
+        # The Skill CLI remains standalone for Claude.ai; this import reuses
+        # the same tested implementation for the installed Python package.
+        from skills.fidelityflow.scripts.fidelityflow import main as file_main
+        return file_main(args)
 
-    ingest = sub.add_parser("ingest", help="Extract and cache a source file")
-    ingest.add_argument("path", help="Path to the file")
-    ingest.add_argument("--cache-dir", help="Cache directory")
-    ingest.add_argument("--chunk-chars", type=int, default=7000, help="Chunk size in characters")
-
-    ingest_dir = sub.add_parser("ingest-dir", help="Recursively ingest supported files")
-    ingest_dir.add_argument("path", help="Root directory")
-    ingest_dir.add_argument("--cache-dir", help="Cache directory")
-    ingest_dir.add_argument("--chunk-chars", type=int, default=7000, help="Chunk size")
-
-    search = sub.add_parser("search", help="Search cached files")
-    search.add_argument("--query", required=True, help="Search query")
-    search.add_argument("--top-k", type=int, default=5, help="Max results")
-    search.add_argument("--max-chars", type=int, default=1600, help="Max chars per result")
-    search.add_argument("--cache-dir", help="Cache directory")
-
-    show = sub.add_parser("show", help="Show a cached chunk")
-    show.add_argument("--document", required=True, help="Document ID")
-    show.add_argument("--chunk", type=int, required=True, help="Chunk index")
-    show.add_argument("--cache-dir", help="Cache directory")
-
-    args = parser.parse_args(argv)
-
-    if args.command in ("observe", "recall", "candidates", "confirm", "retire", "forget", "stats"):
-        from fidelityflow_learning.cli import main as learn_main
-        return learn_main(argv)
-
-    if args.command == "doctor":
-        from skills.fidelityflow.scripts.fidelityflow import make_parser, main as ff_main
-        return ff_main(["doctor", "--cache-dir", args.cache_dir] if args.cache_dir else ["doctor"])
-
-    print(f"Command {args.command} not configured at package level.", file=sys.stderr)
+    print(f"fidelityflow: unknown command '{command}'", file=sys.stderr)
+    _help()
     return 2
 
 

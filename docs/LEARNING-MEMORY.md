@@ -1,4 +1,4 @@
-# Evidence-backed Project Memory (v0.3.0)
+# Evidence-backed Project Memory (v0.3.1)
 
 ## Design Goals
 
@@ -32,13 +32,13 @@ candidate → active → retired
 ## CLI
 
 ```bash
-python -m fidelityflow recall --root .
-python -m fidelityflow observe --root . --key test.command --value "pytest -q" --session "$CLAUDE_SESSION_ID" --source bash --evidence "Ran pytest -q; exit code 0."
-python -m fidelityflow candidates --root .
-python -m fidelityflow confirm --root . --key test.command --value "pytest -q"
-python -m fidelityflow retire --root . --key test.command
-python -m fidelityflow forget --root .
-python -m fidelityflow stats --root .
+fflearn --root . recall
+fflearn --root . observe --key test.command --value "pytest -q" --session "$CLAUDE_SESSION_ID" --source bash --evidence "Ran pytest -q; exit code 0."
+fflearn --root . candidates
+fflearn --root . confirm --key test.command --value "pytest -q"
+fflearn --root . retire --key test.command
+fflearn --root . forget
+fflearn --root . stats
 ```
 
 ## Claude.ai Limitation
@@ -55,3 +55,13 @@ This release includes opt-in, fail-open hooks:
 Copy the entries from `hooks/hooks.example.json` into the existing settings file; do not replace the whole settings file. Change both script paths to absolute paths on your machine. The scripts use the standard Python library and have short timeouts. They fail open, and you can remove the two hook entries to disable learning.
 
 The observer is deliberately narrow: it does not learn arbitrary project instructions, file contents, shell aliases, or MCP tool behavior. Add new command families only with explicit allowlist rules and tests. The two-session threshold is still required before a fact is injected.
+
+## Resolution semantics (schema v2)
+
+- facts.required_sessions records the promotion threshold selected on the first observation of a particular key/value. Later observations cannot silently lower or raise that threshold.
+- resolutions records the human-selected value and the latest observation ID considered when the decision was made.
+- Repeating the selected value after confirmation keeps it active.
+- A newly inserted conflicting observation after the decision removes the resolution and returns active facts for that key to candidate review. Conflicts that existed before the human decision remain historical evidence and do not immediately undo that decision.
+- Confirming a value retires all competing fact rows for the key. A new conflict can reopen review, but no value is automatically selected.
+
+Existing schema-v1 databases are migrated to schema v2 when opened. The migration adds the promotion-threshold field and resolution table without deleting observations or learned facts.

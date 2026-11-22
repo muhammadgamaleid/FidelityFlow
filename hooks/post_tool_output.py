@@ -16,7 +16,25 @@ import re
 import shlex
 import shutil
 import sys
+import tempfile
 from datetime import datetime, timezone
+
+
+def atomic_private_write(path: Path, text: str) -> None:
+    """Write archive material atomically without following a destination symlink."""
+    if path.is_symlink():
+        raise OSError(f"Refusing to overwrite symlink: {path}")
+    fd, temporary_name = tempfile.mkstemp(prefix=f".{path.name}.", suffix=".tmp", dir=path.parent)
+    temporary = Path(temporary_name)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8", newline="") as stream:
+            stream.write(text)
+        if path.is_symlink():
+            raise OSError(f"Archive destination became a symlink: {path}")
+        os.replace(temporary, path)
+    finally:
+        temporary.unlink(missing_ok=True)
+
 
 def minimum_chars() -> int:
     """Read the optional threshold defensively; bad settings must fail safe."""
@@ -434,7 +452,7 @@ def main() -> None:
         if archive_file.is_symlink() or metadata_file.is_symlink():
             return fail_open()
 
-        archive_file.write_text(stdout, encoding="utf-8", newline="")
+        atomic_private_write(archive_file, stdout)
         metadata = {
             "schema_version": 1,
             "archive_ref": ref,
@@ -450,7 +468,7 @@ def main() -> None:
             "retained_lines": retained_lines,
             "archive_file": str(archive_file),
         }
-        metadata_file.write_text(json.dumps(metadata, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+        atomic_private_write(metadata_file, json.dumps(metadata, ensure_ascii=False, indent=2) + "\n")
         if os.name != "nt":
             for private_file in (archive_file, metadata_file):
                 try:

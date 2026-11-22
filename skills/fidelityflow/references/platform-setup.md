@@ -36,3 +36,6 @@
 ### What this project does not change
 
 FidelityFlow does not change model selection, thinking budgets, Anthropic billing, prompt-cache policy, automatic compaction thresholds, or the content of user deliverables. It adds a local file index/cache and opt-in exact Read deduplication plus a narrow successful test-output hook.
+
+
+For automated user-level installation, run python install.py --scope user. To register all optional Claude Code hooks, run python install.py --scope user --enable-output-hook. Add --hook-only when the Skill is already installed and only hook registration is required. The installer validates existing settings before writing and backs up settings.json before merging.

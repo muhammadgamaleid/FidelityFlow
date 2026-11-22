@@ -12,7 +12,7 @@ import zipfile
 
 ROOT = Path(__file__).resolve().parents[1]
 CLI = ROOT / "skills" / "fidelityflow" / "scripts" / "fidelityflow.py"
-HOOK = ROOT / "claude-code" / "hooks" / "post_tool_output.py"
+HOOK = ROOT / "hooks" / "post_tool_output.py"
 INSTALLER = ROOT / "install.py"
 
 
@@ -102,6 +102,27 @@ class FidelityFlowCliTests(unittest.TestCase):
             self.assertEqual(show.returncode, 0, show.stderr)
             self.assertIn("Verified source text", show.stdout)
             self.assertNotIn("DO NOT READ THIS FILE", show.stdout)
+
+
+    def test_cache_documents_symlink_is_rejected(self):
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as outside_tmp:
+            base = Path(tmp)
+            outside = Path(outside_tmp)
+            source = base / "source.md"
+            source.write_text("source text", encoding="utf-8")
+            cache = base / "cache"
+            (cache / "documents").mkdir(parents=True)
+            (cache / "documents").rmdir()
+            try:
+                (cache / "documents").symlink_to(outside, target_is_directory=True)
+            except (OSError, NotImplementedError):
+                self.skipTest("directory symlinks are unavailable")
+            proc = subprocess.run(
+                [sys.executable, str(CLI), "ingest", str(source), "--cache-dir", str(cache)],
+                capture_output=True, text=True, timeout=30,
+            )
+            self.assertEqual(proc.returncode, 3)
+            self.assertFalse(any(outside.iterdir()))
 
     def test_cache_key_includes_extractor_and_prevents_cross_format_collision(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -550,6 +571,44 @@ class UsageTelemetryTests(unittest.TestCase):
             self.assertIn("cache_read_input_tokens: 40", proc.stdout)
             self.assertIn("output_tokens: 20", proc.stdout)
             self.assertIn("input_total_including_cache_reads: 170", proc.stdout)
+
+
+
+class UnifiedPackageCliTests(unittest.TestCase):
+    def test_module_entrypoint_routes_file_commands_to_the_indexer(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            source = base / "source.md"
+            source.write_text("Revenue contracts contain performance obligations.", encoding="utf-8")
+            cache = base / "cache"
+            ingest = subprocess.run(
+                [sys.executable, "-m", "fidelityflow", "ingest", str(source),
+                 "--cache-dir", str(cache)],
+                cwd=ROOT, capture_output=True, text=True, timeout=30,
+            )
+            self.assertEqual(ingest.returncode, 0, ingest.stderr)
+            self.assertEqual(json.loads(ingest.stdout)["status"], "processed")
+            search = subprocess.run(
+                [sys.executable, "-m", "fidelityflow", "search", "--query",
+                 "performance obligations", "--cache-dir", str(cache)],
+                cwd=ROOT, capture_output=True, text=True, timeout=30,
+            )
+            self.assertEqual(search.returncode, 0, search.stderr)
+            self.assertIn("performance obligations", search.stdout.lower())
+
+    def test_module_entrypoint_help_and_version(self):
+        help_result = subprocess.run(
+            [sys.executable, "-m", "fidelityflow"], cwd=ROOT,
+            capture_output=True, text=True, timeout=10,
+        )
+        self.assertEqual(help_result.returncode, 0, help_result.stderr)
+        self.assertIn("ingest-dir", help_result.stdout)
+        version = subprocess.run(
+            [sys.executable, "-m", "fidelityflow", "--version"], cwd=ROOT,
+            capture_output=True, text=True, timeout=10,
+        )
+        self.assertEqual(version.returncode, 0, version.stderr)
+        self.assertIn("0.3.1", version.stdout)
 
 
 class InstallerTests(unittest.TestCase):

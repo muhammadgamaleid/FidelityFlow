@@ -1,22 +1,46 @@
 #!/usr/bin/env python3
 """Learn only allowlisted successful Bash test/build/lint commands."""
+
 from __future__ import annotations
+
 import json
 import re
-import subprocess
 import sys
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT))
+HERE = Path(__file__).resolve().parent
+RUNTIME = HERE / "runtime"
+if (RUNTIME / "fidelityflow").is_dir():
+    sys.path.insert(0, str(RUNTIME))
+else:
+    sys.path.insert(0, str(HERE.parent))
 
-# Intentionally narrow. Add patterns only with tests and clear evidence semantics.
+from fidelityflow.learning.store import LearningStore  # noqa: E402
+
 PATTERNS = [
-    ("test.command", re.compile(r"(^|[;&|]\s*)(pytest(?:\s|$)|python\s+-m\s+unittest(?:\s|$)|npm\s+(?:run\s+)?test(?:\s|$)|pnpm\s+(?:run\s+)?test(?:\s|$)|yarn\s+test(?:\s|$)|go\s+test(?:\s|$)|cargo\s+test(?:\s|$))")),
-    ("build.command", re.compile(r"(^|[;&|]\s*)(npm\s+run\s+build|pnpm\s+build|yarn\s+build|cargo\s+build|go\s+build)(?:\s|$)")),
-    ("lint.command", re.compile(r"(^|[;&|]\s*)(ruff\s+check|eslint(?:\s|$)|prettier\s+--check|mypy(?:\s|$)|pyright(?:\s|$))(?:\s|$)")),
+    ("test.command", re.compile(
+        r"(^|[;&|]\s*)(pytest(?:\s|$)|python\s+-m\s+unittest(?:\s|$)|"
+        r"npm\s+(?:run\s+)?test(?:\s|$)|pnpm\s+(?:run\s+)?test(?:\s|$)|"
+        r"yarn\s+test(?:\s|$)|go\s+test(?:\s|$)|cargo\s+test(?:\s|$))"
+    )),
+    ("build.command", re.compile(
+        r"(^|[;&|]\s*)(npm\s+run\s+build|pnpm\s+build|yarn\s+build|"
+        r"cargo\s+build|go\s+build)(?:\s|$)"
+    )),
+    ("lint.command", re.compile(
+        r"(^|[;&|]\s*)(ruff\s+check|eslint(?:\s|$)|prettier\s+--check|"
+        r"mypy(?:\s|$)|pyright(?:\s|$))(?:\s|$)"
+    )),
 ]
-SENSITIVE = re.compile(r"(?i)(--password|--token|--api[-_]?key|\.env(?:\.|\s|$)|secret\s*=|token\s*=|api[_-]?key\s*=)")
+
+# Commands containing credentials are discarded entirely rather than relying
+# on redaction to recognize every possible secret format.
+SENSITIVE = re.compile(
+    r"(?i)(--(?:password|token|api[-_]?key|secret|authorization|database[-_]?url|connection[-_]?string)\b|"
+    r"\b[A-Z0-9_]*(?:PASSWORD|TOKEN|SECRET|API_KEY|DATABASE_URL|PRIVATE_KEY)\s*=|"
+    r"(?:https?|postgres(?:ql)?|mysql)://[^/\s:@]+:[^@\s]+@|"
+    r"\.env(?:\.|\s|$))"
+)
 
 
 def main() -> int:
@@ -32,19 +56,24 @@ def main() -> int:
         matched_key = next((key for key, pattern in PATTERNS if pattern.search(command)), None)
         if not matched_key:
             return 0
-        # PostToolUse is emitted after a successful tool call. Never infer from output text.
-        evidence = f"Claude Code PostToolUse: allowlisted Bash command completed successfully in session {session}."
-        subprocess.run([
-            sys.executable, "-m", "fidelityflow_learning", "--root", cwd,
-            "observe", "--key", matched_key, "--value", command,
-            "--session", session, "--source", "claude-code-posttooluse",
-            "--evidence", evidence,
-        ], cwd=ROOT, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
-           stderr=subprocess.DEVNULL, timeout=2, check=False)
+
+        # PostToolUse is emitted after a successful tool call. The hook stores
+        # the command only after credential-bearing forms have been rejected;
+        # LearningStore applies a second, independent redaction layer.
+        evidence = "Claude Code PostToolUse: allowlisted Bash command completed successfully."
+        with LearningStore(root=cwd) as store:
+            store.observe(
+                matched_key,
+                command,
+                session,
+                "claude-code-posttooluse",
+                evidence,
+            )
     except Exception:
-        # Fail open: memory collection is optional and must not affect tool execution.
+        # Optional learning must never block the user's tool workflow.
         return 0
     return 0
+
 
 if __name__ == "__main__":
     raise SystemExit(main())

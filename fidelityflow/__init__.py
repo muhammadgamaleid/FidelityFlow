@@ -1,3 +1,3 @@
-"""FidelityFlow v0.3.0 — Unified Context & Project Learning Package."""
+"""FidelityFlow — unified file processing and evidence-backed project memory."""
 
-__version__ = "0.3.0"
+__version__ = "0.3.1"

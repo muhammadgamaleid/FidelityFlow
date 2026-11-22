@@ -1,2 +1,2 @@
-"""FidelityFlow evidence-backed project learning."""
-__version__ = "0.2.0"
+"""FidelityFlow project-learning subpackage."""
+__version__ = "0.3.1"

@@ -16,6 +16,7 @@ import os
 from pathlib import Path
 import re
 import sys
+import tempfile
 import textwrap
 import zipfile
 import xml.etree.ElementTree as ET
@@ -26,7 +27,9 @@ VERSION = "0.1.0"  # Initial public release; bump when extractor/cache semantics
 DEFAULT_CACHE = Path.cwd() / ".fidelityflow" / "cache"
 DEFAULT_ARCHIVE = Path.cwd() / ".fidelityflow" / "archive"
 CHUNK_CHARS = 7000
-MAX_OOXML_XML_MEMBER_BYTES = 64 * 1024 * 1024  # Refuse oversized XML parts rather than risk ZIP-bomb memory exhaustion.
+MAX_OOXML_XML_MEMBER_BYTES = 64 * 1024 * 1024  # Per-part limit.
+MAX_OOXML_TOTAL_BYTES = 256 * 1024 * 1024
+MAX_OOXML_MEMBERS = 10000
 
 
 def sha256_bytes(data: bytes) -> str:
@@ -48,6 +51,29 @@ def safe_name(value: str) -> str:
 
 def local_name(tag: str) -> str:
     return tag.rsplit("}", 1)[-1]
+
+
+def validate_ooxml_archive(archive: zipfile.ZipFile) -> None:
+    """Bound total expanded size, entry count, and pathological compression ratios."""
+    infos = archive.infolist()
+    if len(infos) > MAX_OOXML_MEMBERS:
+        raise ValueError(f"OOXML archive has too many members ({len(infos)}; limit {MAX_OOXML_MEMBERS})")
+    total_size = sum(info.file_size for info in infos)
+    if total_size > MAX_OOXML_TOTAL_BYTES:
+        raise ValueError(
+            f"OOXML archive expands to {total_size:,} bytes; total limit is "
+            f"{MAX_OOXML_TOTAL_BYTES:,}. Split the source or use native document handling."
+        )
+    for info in infos:
+        if info.file_size > MAX_OOXML_XML_MEMBER_BYTES and info.filename.lower().endswith(".xml"):
+            raise ValueError(
+                f"OOXML member {info.filename} is {info.file_size:,} bytes; "
+                f"per-XML-member limit is {MAX_OOXML_XML_MEMBER_BYTES:,}"
+            )
+        if info.file_size > 1024 * 1024 and info.compress_size == 0:
+            raise ValueError(f"OOXML member has an invalid compression size: {info.filename}")
+        if info.compress_size and info.file_size / info.compress_size > 1000:
+            raise ValueError(f"OOXML member has an excessive compression ratio: {info.filename}")
 
 
 def read_ooxml_xml_member(archive: zipfile.ZipFile, member: str) -> bytes:
@@ -89,6 +115,7 @@ def xml_text(element: ET.Element) -> str:
 def extract_docx(path: Path) -> tuple[str, list[str]]:
     notes = ["DOCX extraction preserves paragraph and table text, not pagination or exact visual layout."]
     with zipfile.ZipFile(path) as archive:
+        validate_ooxml_archive(archive)
         xml = ET.fromstring(read_ooxml_xml_member(archive, "word/document.xml"))
     body = next((x for x in xml.iter() if local_name(x.tag) == "body"), None)
     if body is None:
@@ -131,6 +158,7 @@ def parse_xlsx(path: Path) -> tuple[str, list[str]]:
         "pkg": "http://schemas.openxmlformats.org/package/2006/relationships",
     }
     with zipfile.ZipFile(path) as archive:
+        validate_ooxml_archive(archive)
         names = set(archive.namelist())
         workbook = ET.fromstring(read_ooxml_xml_member(archive, "xl/workbook.xml"))
         rels_root = ET.fromstring(read_ooxml_xml_member(archive, "xl/_rels/workbook.xml.rels"))
@@ -208,6 +236,7 @@ def parse_xlsx(path: Path) -> tuple[str, list[str]]:
 def parse_pptx(path: Path) -> tuple[str, list[str]]:
     notes = ["PPTX extraction captures slide text and basic table cell text; it does not reproduce images, charts, diagrams, layout, animations, or speaker notes."]
     with zipfile.ZipFile(path) as archive:
+        validate_ooxml_archive(archive)
         slide_names = [n for n in archive.namelist() if re.fullmatch(r"ppt/slides/slide\d+\.xml", n)]
         slide_names.sort(key=lambda n: int(re.search(r"slide(\d+)", n).group(1)))
         output = []
@@ -345,6 +374,49 @@ def default_cache_dir(value: str | None) -> Path:
     return Path(value).expanduser().resolve() if value else DEFAULT_CACHE.resolve()
 
 
+def atomic_write_text(path: Path, text: str) -> None:
+    """Write within a prepared cache directory without following a destination symlink."""
+    if path.is_symlink():
+        raise OSError(f"Refusing to overwrite symlinked cache file: {path}")
+    fd, temporary_name = tempfile.mkstemp(prefix=f".{path.name}.", suffix=".tmp", dir=path.parent)
+    temporary = Path(temporary_name)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8", newline="") as handle:
+            handle.write(text)
+        if path.is_symlink():
+            raise OSError(f"Cache file became a symlink during write: {path}")
+        os.replace(temporary, path)
+    finally:
+        temporary.unlink(missing_ok=True)
+
+
+def prepare_cache_document(cache_root: Path, doc_dir: Path) -> None:
+    """Create the cache path while rejecting symlinks in its managed directories."""
+    cache_root.mkdir(parents=True, exist_ok=True)
+    if cache_root.is_symlink() or not cache_root.is_dir():
+        raise OSError(f"Cache root is not a regular directory: {cache_root}")
+    documents_dir = cache_root / "documents"
+    if documents_dir.is_symlink():
+        raise OSError(f"Refusing symlinked cache documents directory: {documents_dir}")
+    documents_dir.mkdir(exist_ok=True)
+    if documents_dir.is_symlink() or not documents_dir.is_dir():
+        raise OSError(f"Cache documents path is not a regular directory: {documents_dir}")
+    if doc_dir.is_symlink():
+        raise OSError(f"Refusing symlinked document cache directory: {doc_dir}")
+    doc_dir.mkdir(exist_ok=True)
+    if doc_dir.is_symlink() or not doc_dir.is_dir():
+        raise OSError(f"Document cache path is not a regular directory: {doc_dir}")
+    if os.name != "nt":
+        for directory in (cache_root, documents_dir, doc_dir):
+            try:
+                directory.chmod(0o700)
+            except OSError:
+                pass
+    for name in ("manifest.json", "content.txt", "chunks.jsonl"):
+        if (doc_dir / name).is_symlink():
+            raise OSError(f"Refusing symlinked cache file: {doc_dir / name}")
+
+
 def cmd_ingest(args: argparse.Namespace) -> int:
     path = Path(args.path).expanduser().resolve()
     if not path.is_file():
@@ -361,6 +433,11 @@ def cmd_ingest(args: argparse.Namespace) -> int:
     cache_root = default_cache_dir(args.cache_dir)
     doc_dir = cache_root / "documents" / cache_key
     manifest_path = doc_dir / "manifest.json"
+    try:
+        prepare_cache_document(cache_root, doc_dir)
+    except OSError as exc:
+        print(f"Cache preparation failed: {exc}", file=sys.stderr)
+        return 3
     if manifest_path.is_file():
         try:
             manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
@@ -369,7 +446,7 @@ def cmd_ingest(args: argparse.Namespace) -> int:
                 alias = {"name": path.name, "path": str(path)}
                 if alias not in aliases:
                     aliases.append(alias)
-                    manifest_path.write_text(json.dumps(manifest, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+                    atomic_write_text(manifest_path, json.dumps(manifest, ensure_ascii=False, indent=2) + "\n")
                 print(json.dumps({"status": "cache_hit", "document_id": manifest.get("document_id", cache_key[:12]), "source": str(path), "cache": str(doc_dir), "chunks": manifest.get("chunk_count", 0)}, ensure_ascii=False))
                 return 0
         except (OSError, json.JSONDecodeError):
@@ -383,17 +460,17 @@ def cmd_ingest(args: argparse.Namespace) -> int:
         print(f"Extraction failed: extractor mismatch ({extractor} != {extractor_expected})", file=sys.stderr)
         return 3
     chunks = split_chunks(text, args.chunk_chars)
-    doc_dir.mkdir(parents=True, exist_ok=True)
-    (doc_dir / "content.txt").write_text(text, encoding="utf-8")
+    atomic_write_text(doc_dir / "content.txt", text)
     # Store text once. The index stores offsets, source locations, hashes,
     # and term frequencies only, allowing ranking before reading source text.
-    with (doc_dir / "chunks.jsonl").open("w", encoding="utf-8", newline="\n") as handle:
-        for chunk in chunks:
-            record = {key: value for key, value in chunk.items() if key != "text"}
-            frequencies = Counter(tokenize(chunk["text"]))
-            record["term_freq"] = dict(frequencies)
-            record["term_count"] = sum(frequencies.values())
-            handle.write(json.dumps(record, ensure_ascii=False) + "\n")
+    index_lines = []
+    for chunk in chunks:
+        record = {key: value for key, value in chunk.items() if key != "text"}
+        frequencies = Counter(tokenize(chunk["text"]))
+        record["term_freq"] = dict(frequencies)
+        record["term_count"] = sum(frequencies.values())
+        index_lines.append(json.dumps(record, ensure_ascii=False))
+    atomic_write_text(doc_dir / "chunks.jsonl", "\n".join(index_lines) + ("\n" if index_lines else ""))
     manifest = {
         "schema_version": 1,
         "fidelityflow_version": VERSION,
@@ -415,7 +492,7 @@ def cmd_ingest(args: argparse.Namespace) -> int:
         "content_file": "content.txt",
         "chunks_file": "chunks.jsonl",
     }
-    manifest_path.write_text(json.dumps(manifest, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    atomic_write_text(manifest_path, json.dumps(manifest, ensure_ascii=False, indent=2) + "\n")
     print(json.dumps({"status": "processed", "document_id": cache_key[:12], "sha256": raw_hash, "source": str(path), "cache": str(doc_dir), "characters": len(text), "chunks": len(chunks), "warnings": notes}, ensure_ascii=False))
     return 0
 

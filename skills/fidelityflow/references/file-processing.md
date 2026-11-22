@@ -55,3 +55,8 @@ python fidelityflow/scripts/fidelityflow.py show --document <document-id> --chun
 The cache must be placed in a writable task/project workspace, not inside the Skill folder. Reuse it while that workspace remains available. Anthropic does not guarantee this local cache survives unrelated chats or VM resets. The original upload and Claude Project Knowledge remain the source of truth.
 
 A Skill cannot intercept Claude.ai's internal upload/parser pipeline or guarantee that initial attachment processing is excluded from context. For recurring libraries, upload documents once to Project Knowledge and prefer Claude's native retrieval over duplicating the same collection in FidelityFlow. Use Claude's native document skills for visual PDFs, complex Word layouts, presentation graphics, and spreadsheet calculations. The local CLI is an optional searchable derivative, not a replacement for native fidelity-sensitive processing.
+
+
+## Cache write safety
+
+The local indexer rejects symlinked managed cache directories and destination files, and writes content, index, and manifest files through temporary files followed by an atomic replace. OOXML extraction limits individual XML members, aggregate expanded archive size, archive entry count, and extreme compression ratios.

@@ -1,18 +1,29 @@
 [build-system]
-requires = ["setuptools>=68"]
+requires = ["setuptools>=68", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
 name = "fidelityflow"
-version = "0.3.0"
+version = "0.3.1"
 description = "Unified context-efficiency toolkit and evidence-backed project memory for Claude.ai and Claude Code"
+readme = "README.md"
+license = { text = "MIT" }
 requires-python = ">=3.10"
 dependencies = []
 
+[project.optional-dependencies]
+pdf = ["pypdf>=4,<7"]
+test = ["pytest>=8"]
+dev = ["build>=1.2", "pytest>=8", "pypdf>=4,<7"]
+
 [project.scripts]
-fidelityflow = "fidelityflow:main"
+fidelityflow = "fidelityflow.__main__:main"
 fflearn = "fidelityflow.learning.cli:main"
 
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["fidelityflow*", "skills*"]
+include = ["fidelityflow*", "fidelityflow_learning*", "skills*"]
+namespaces = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

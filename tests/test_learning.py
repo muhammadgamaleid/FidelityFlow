@@ -125,5 +125,116 @@ class LearningTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 s.observe("valid.key","x","a","manual","e",min_sessions=1)
 
+
+    def test_manual_resolution_survives_a_later_matching_observation(self):
+        with self.store() as s:
+            s.observe("test.command", "pytest -q", "s1", "manual", "first evidence")
+            s.observe("test.command", "pytest -q", "s2", "manual", "second evidence")
+            s.observe("test.command", "python -m unittest", "s3", "manual", "conflicting evidence")
+            s.confirm("test.command", "pytest -q")
+            self.assertEqual(s.recall()[0]["value"], "pytest -q")
+            result = s.observe("test.command", "pytest -q", "s4", "manual", "matching after decision")
+            self.assertEqual(result["status"], "active")
+            self.assertEqual(s.recall()[0]["value"], "pytest -q")
+
+    def test_new_conflict_after_manual_resolution_reopens_review(self):
+        with self.store() as s:
+            s.observe("test.command", "pytest -q", "s1", "manual", "first evidence")
+            s.observe("test.command", "pytest -q", "s2", "manual", "second evidence")
+            s.observe("test.command", "python -m unittest", "s3", "manual", "conflicting evidence")
+            s.confirm("test.command", "pytest -q")
+            result = s.observe("test.command", "python -m unittest", "s4", "manual", "new conflict")
+            self.assertEqual(result["status"], "candidate")
+            self.assertEqual(s.recall(), [])
+
+
+    def test_new_conflict_after_resolution_returns_retired_value_to_candidates(self):
+        with self.store() as s:
+            s.observe("test.command", "pytest -q", "s1", "manual", "first")
+            s.observe("test.command", "pytest -q", "s2", "manual", "second")
+            s.observe("test.command", "python -m unittest", "s3", "manual", "conflict")
+            s.confirm("test.command", "pytest -q")
+            result = s.observe("test.command", "python -m unittest", "s4", "manual", "new conflict")
+            self.assertEqual(result["status"], "candidate")
+            self.assertEqual(len(s.list_candidates()), 2)
+            self.assertEqual(s.recall(), [])
+
+    def test_retired_fact_is_not_automatically_reactivated(self):
+        with self.store() as s:
+            s.observe("build.command", "make build", "s1", "manual", "first")
+            s.observe("build.command", "make build", "s2", "manual", "second")
+            self.assertEqual(s.retire("build.command"), 1)
+            result = s.observe("build.command", "make build", "s3", "manual", "repeated after retirement")
+            self.assertEqual(result["status"], "retired")
+            self.assertEqual(s.recall(), [])
+
+    def test_min_sessions_threshold_is_fixed_by_first_observation(self):
+        with self.store() as s:
+            first = s.observe("build.command", "make build", "s1", "manual", "first", min_sessions=3)
+            second = s.observe("build.command", "make build", "s2", "manual", "second", min_sessions=2)
+            self.assertEqual(first["required_sessions"], 3)
+            self.assertEqual(second["required_sessions"], 3)
+            self.assertEqual(second["status"], "candidate")
+            third = s.observe("build.command", "make build", "s3", "manual", "third")
+            self.assertEqual(third["status"], "active")
+            self.assertEqual(third["required_sessions"], 3)
+
+
+    def test_bare_secret_flag_arguments_are_redacted(self):
+        with self.store() as s:
+            first = s.observe(
+                "command.note", "pytest --password super-secret-value",
+                "s1", "manual", "safe evidence",
+            )
+            self.assertEqual(first["status"], "candidate")
+            row = s.db.execute(
+                "SELECT fact_value FROM facts WHERE project_key=? AND fact_key=?",
+                (s.project_key, "command.note"),
+            ).fetchone()
+            self.assertEqual(row["fact_value"], "pytest --password [REDACTED]")
+
+    def test_evidence_can_use_its_documented_500_character_limit(self):
+        with self.store() as s:
+            result = s.observe(
+                "note.evidence", "short", "session-one", "manual", "x" * 450
+            )
+            self.assertEqual(result["status"], "candidate")
+            stored = s.db.execute(
+                "SELECT evidence FROM observations WHERE project_key=?",
+                (s.project_key,),
+            ).fetchone()["evidence"]
+            self.assertEqual(len(stored), 450)
+
+    def test_v1_database_is_migrated_to_v2(self):
+        import sqlite3
+        legacy = Path(self.tmp.name) / "legacy.sqlite3"
+        connection = sqlite3.connect(legacy)
+        connection.executescript("""
+            CREATE TABLE metadata (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+            INSERT INTO metadata(key,value) VALUES('schema_version','1');
+            CREATE TABLE observations (
+                id INTEGER PRIMARY KEY, project_key TEXT NOT NULL, fact_key TEXT NOT NULL,
+                fact_value TEXT NOT NULL, session_id TEXT NOT NULL, source TEXT NOT NULL,
+                evidence TEXT NOT NULL, evidence_hash TEXT NOT NULL, created_at INTEGER NOT NULL,
+                UNIQUE(project_key, fact_key, fact_value, session_id, evidence_hash)
+            );
+            CREATE TABLE facts (
+                id INTEGER PRIMARY KEY, project_key TEXT NOT NULL, fact_key TEXT NOT NULL,
+                fact_value TEXT NOT NULL, status TEXT NOT NULL
+                CHECK(status IN ('candidate','active','retired')),
+                first_seen INTEGER NOT NULL, updated_at INTEGER NOT NULL,
+                UNIQUE(project_key, fact_key, fact_value)
+            );
+        """)
+        connection.commit()
+        connection.close()
+        with LearningStore(legacy, self.root) as store:
+            self.assertEqual(store.db.execute(
+                "SELECT value FROM metadata WHERE key='schema_version'"
+            ).fetchone()["value"], "2")
+            columns = {row["name"] for row in store.db.execute("PRAGMA table_info(facts)")}
+            self.assertIn("required_sessions", columns)
+            self.assertEqual(store.stats()["observations"], 0)
+
 if __name__ == "__main__":
     unittest.main()

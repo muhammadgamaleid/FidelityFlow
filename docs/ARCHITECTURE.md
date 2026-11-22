@@ -2,7 +2,7 @@
 
 ## Goals
 
-FidelityFlow v0.3.0 targets both **Claude.ai** and **Claude Code**. It optimizes avoidable context overhead while preserving the requested deliverable. The product deliberately avoids a universal lossy compressor: output semantics vary by command, file type, and task, so unknown material is left untouched.
+FidelityFlow v0.3.1 targets both **Claude.ai** and **Claude Code**. It optimizes avoidable context overhead while preserving the requested deliverable. The product deliberately avoids a universal lossy compressor: output semantics vary by command, file type, and task, so unknown material is left untouched.
 
 ## Unified Architecture
 
@@ -106,7 +106,7 @@ The project does not estimate Claude token counts from character length. `benchm
 - **Claude Code:** Local CLI and hooks persist in the project/user environment. Hook behavior is intentionally opt-in
 - **Both:** No global percentage saving claim is made until model-level A/B benchmarks are run on the same tasks, model, cache conditions, and quality rubric
 
-## Deliberate Non-Goals in v0.3.0
+## Deliberate Non-Goals in v0.3.1
 
 - No semantic embedding model or hosted vector database
 - No GraphRAG engine or full knowledge graph
@@ -114,3 +114,11 @@ The project does not estimate Claude token counts from character length. `benchm
 - No local code AST graph; use Claude Code's native code intelligence for that
 - No generic shell output rewriting or arbitrary source-code compression
 - No automatic reduction of user-requested book, report, code, or spreadsheet content
+
+## Packaging and CLI Integration
+
+The maintained Learning implementation is fidelityflow/learning/. The former fidelityflow_learning package is a backwards-compatible import shim; it does not contain a second copy of the implementation.
+
+The installed fidelityflow command and python -m fidelityflow dispatch file commands to the Skill's tested file-processing engine and memory commands to the Learning CLI. The skills namespace is included in the Python distribution so this routing also works after wheel installation.
+
+install.py installs the Claude Skill and, when requested, registers optional hooks while preserving existing Claude settings. build_release.py validates relative Skill references and builds dist/fidelityflow-claude-ai.zip. The GitHub Actions workflow tests supported Python versions and builds a wheel.
