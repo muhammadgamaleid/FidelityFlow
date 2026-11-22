@@ -20,7 +20,7 @@ class ReleaseBuildTests(unittest.TestCase):
         manifest = build_release.validate_plugin_source()
         self.assertEqual(manifest["name"], "fidelityflow")
         self.assertIn("./skills/", manifest["skills"])
-        self.assertEqual(manifest["version"], "0.4.0")
+        self.assertEqual(manifest["version"], "0.5.0")
 
     def test_builds_skill_and_plugin_archives(self):
         with tempfile.TemporaryDirectory() as temporary:

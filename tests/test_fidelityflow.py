@@ -57,6 +57,38 @@ class FidelityFlowCliTests(unittest.TestCase):
             self.assertEqual(chunk["line_start"], text.count("\n", 0, chunk["char_start"]) + 1)
             self.assertEqual(chunk["line_end"], text.count("\n", 0, max(chunk["char_start"], chunk["char_end"] - 1)) + 1)
 
+    def test_tokenizer_splits_code_identifiers_and_keeps_exact_names(self):
+        module = load_module(CLI, "fidelityflow_identifier_tokenizer_test")
+        terms = module.tokenize("getUserProfile user_id HTTPClient")
+        for term in ("getuserprofile", "get", "user", "profile", "user_id", "id", "httpclient", "http", "client"):
+            self.assertIn(term, terms)
+
+    def test_code_chunking_prefers_symbol_boundaries_without_losing_source(self):
+        module = load_module(CLI, "fidelityflow_structural_chunker_test")
+        source = ("value = 1\n" * 12) + (
+            "class OAuthTokenManager:\n"
+            "    def get_user_profile(self):\n"
+            "        return 'profile'\n"
+        ) + ("# trailing explanation\n" * 15)
+        chunks = module.split_chunks(source, 200, source_suffix=".py")
+        self.assertGreater(len(chunks), 1)
+        self.assertEqual("".join(item["text"] for item in chunks), source)
+        self.assertEqual(source[chunks[0]["char_end"]:].startswith("class OAuthTokenManager"), True)
+        self.assertEqual(chunks[0]["boundary_type"], "structure")
+
+    def test_search_excerpt_centers_match_and_preserves_code_line_breaks(self):
+        module = load_module(CLI, "fidelityflow_excerpt_test")
+        lines = [f"def helper_{i}(): return {i}" for i in range(60)]
+        lines[31] = "def important_function(user_id):"
+        lines[32] = "    profile = getUserProfile(user_id)"
+        lines[33] = "    return profile"
+        excerpt = module.build_excerpt("\n".join(lines), "important_function", 180)
+        self.assertIn("important_function", excerpt)
+        self.assertIn("getUserProfile", excerpt)
+        self.assertGreaterEqual(excerpt.count("\n"), 2)
+        self.assertLessEqual(len(excerpt), 180)
+        self.assertNotIn("def helper_0()", excerpt)
+
     def test_ingest_cache_search_and_index_does_not_duplicate_text(self):
         with tempfile.TemporaryDirectory() as tmp:
             base = Path(tmp)

@@ -82,7 +82,7 @@ OCR is opt-in. It processes sparse-text PDF pages only, respects the configured 
 - Use /clear when switching to an unrelated task. Use /compact when continuing the same task and preserve decisions, constraints, file paths, tests, and unresolved questions.
 - Keep CLAUDE.md focused on facts that matter in most sessions. Move detailed workflows into Skills that are loaded when relevant.
 - Disable MCP servers you are not using. Tool definitions and returned results can both consume context.
-- Prefer narrow CLI commands, symbol searches, and line ranges over dumping entire directories or large files.
+- Prefer narrow CLI commands, symbol searches, and line ranges over dumping entire directories or large files. FidelityFlow search expands common code identifiers and returns line-preserving excerpts; use `show` when the complete function or source chunk is required.
 - Reuse repository knowledge and avoid repeating identical reads or searches.
 - Choose model and effort based on task difficulty. Do not lower reasoning effort for security, architecture, data integrity, or other high-stakes tasks only to save tokens.
 - Leave prompt caching enabled unless you have a measured reason to change it. Cache reads can reduce billed API cost, but cached content can still occupy context.

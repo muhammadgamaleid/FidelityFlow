@@ -47,7 +47,7 @@ These hooks are deliberately narrow. General schema-aware MCP/web result project
 | Area | Current status | Next engineering target |
 |---|---|---|
 | File extraction | Text, Office XML-derived content, PDF text | Stronger per-format extraction and source maps |
-| File retrieval | Local cache and lexical chunk search | Better ranking, metadata filters, structural retrieval |
+| File retrieval | Local cache, BM25-style chunk search, identifier-aware indexing, structural code/heading boundaries, and line-preserving query-centered excerpts | Semantic retrieval, metadata filters, AST/LSP symbol maps |
 | Images and scans | Opt-in local Tesseract OCR for images and sparse-text PDF pages; no visual reasoning | Image-region analysis, layout understanding, OCR quality scoring, and source-region maps |
 | Conversation history | No direct rewrite; Claude Code PreCompact guidance steers the existing summary | Evaluate compaction quality and optional structured session checkpoints |
 | Tool output | Exact duplicate Read and eligible text-only search/MCP results; limited successful tests | Schema-aware adapters and safe result projection for known tool contracts |
@@ -94,6 +94,7 @@ Any unknown, lossy, ambiguous, or unrecoverable transformation must fail open.
 - Do not rewrite unknown tool responses.
 
 ### P3 — Text, code, and session context
+- Current code retrieval expands underscore/CamelCase identifiers and prefers common symbol/heading boundaries; benchmark recall and improve language-specific structural parsing.
 - Improve structural code retrieval and duplicate-read detection.
 - Add parsers for high-volume log/search/test result formats.
 - Evaluate conversation compaction strategies within Claude Code's supported mechanisms, with PreCompact policy and optional user-maintained session briefs.

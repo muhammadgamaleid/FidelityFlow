@@ -25,7 +25,7 @@ import xml.etree.ElementTree as ET
 from datetime import datetime, timezone
 from collections import Counter
 
-VERSION = "0.4.0"  # Office extraction, OCR, and cache processing semantics.
+VERSION = "0.5.0"  # Office extraction, OCR, code-aware chunking, and expanded identifier indexing.
 DEFAULT_CACHE = Path.cwd() / ".fidelityflow" / "cache"
 DEFAULT_ARCHIVE = Path.cwd() / ".fidelityflow" / "archive"
 CHUNK_CHARS = 7000
@@ -703,8 +703,74 @@ def extract_file(
         f"Unsupported file type: {suffix or '[no extension]'}. Keep the original and use Claude's native file handling or convert explicitly."
     )
 
-def split_chunks(text: str, max_chars: int = CHUNK_CHARS) -> list[dict]:
-    """Split without dropping characters; chunk text concatenation equals input."""
+CODE_SUFFIXES = {
+    ".py", ".js", ".ts", ".tsx", ".jsx", ".java", ".go", ".rs",
+    ".c", ".h", ".cpp", ".cs", ".sql", ".sh", ".ps1",
+}
+
+
+def _structural_patterns(suffix: str | None) -> list[re.Pattern]:
+    """Return conservative, line-start patterns for lightweight section boundaries."""
+    if suffix in {".md", ".markdown", ".rst"}:
+        return [re.compile(r"^\s{0,3}(?:#{1,6}\s+|={3,}\s*$|-{3,}\s*$)")]
+    if suffix == ".py":
+        return [re.compile(r"^\s{0,16}(?:async\s+def|def|class)\s+\w+")]
+    if suffix in {".js", ".ts", ".tsx", ".jsx"}:
+        return [
+            re.compile(r"^\s{0,16}(?:(?:export|declare)\s+)*(?:default\s+)?(?:async\s+)?function\s+\w*"),
+            re.compile(r"^\s{0,16}(?:(?:export|declare)\s+)*(?:abstract\s+)?(?:class|interface|type|enum)\s+\w+"),
+            re.compile(r"^\s{0,16}(?:(?:export\s+)?(?:const|let|var))\s+\w+\s*=\s*(?:async\s*)?\("),
+        ]
+    if suffix == ".go":
+        return [
+            re.compile(r"^\s{0,16}func\s+(?:\([^)]*\)\s*)?\w+"),
+            re.compile(r"^\s{0,16}type\s+\w+\s+(?:struct|interface)"),
+        ]
+    if suffix == ".rs":
+        return [
+            re.compile(r"^\s{0,16}(?:(?:pub(?:\([^)]*\))?)\s+)*(?:async\s+)?fn\s+\w+"),
+            re.compile(r"^\s{0,16}(?:(?:pub(?:\([^)]*\))?)\s+)*(?:struct|enum|trait|impl)\b"),
+        ]
+    if suffix in {".java", ".cs"}:
+        return [
+            re.compile(r"^\s{0,16}(?:(?:public|private|protected|internal|static|abstract|final|sealed|async|partial)\s+)*(?:class|interface|enum|struct)\s+\w+"),
+            re.compile(r"^\s{0,16}(?:(?:public|private|protected|internal|static|async|virtual|override|final)\s+)+[\w<>?,\[\].]+\s+\w+\s*\("),
+        ]
+    if suffix in {".c", ".h", ".cpp"}:
+        return [
+            re.compile(r"^\s{0,16}(?:class|struct|enum|namespace)\s+\w+"),
+            re.compile(r"^\s{0,16}[\w:*&<>~]+\s+\w+\s*\([^;]*\)\s*(?:const\s*)?(?:\{|$)"),
+        ]
+    return []
+
+
+def _find_structural_boundary(
+    text: str, start: int, end: int, min_chars: int, patterns: list[re.Pattern]
+) -> int | None:
+    if not patterns:
+        return None
+    cursor = text.find("\n", start + min_chars - 1, end)
+    candidates = []
+    while cursor >= 0:
+        line_start = cursor + 1
+        if line_start >= end:
+            break
+        line_end = text.find("\n", line_start, end)
+        if line_end < 0:
+            line_end = end
+        line = text[line_start:line_end]
+        if any(pattern.match(line) for pattern in patterns):
+            candidates.append(line_start)
+        cursor = text.find("\n", line_start, end)
+    return candidates[-1] if candidates else None
+
+
+def split_chunks(
+    text: str,
+    max_chars: int = CHUNK_CHARS,
+    source_suffix: str | None = None,
+) -> list[dict]:
+    """Split losslessly, preferring Markdown headings and code symbol boundaries."""
     if not text:
         return []
     chunks = []
@@ -712,17 +778,25 @@ def split_chunks(text: str, max_chars: int = CHUNK_CHARS) -> list[dict]:
     index = 0
     line_start = 1
     length = len(text)
+    patterns = _structural_patterns(source_suffix)
     while start < length:
         end = min(start + max_chars, length)
+        boundary_type = "limit"
         if end < length:
-            boundary = text.rfind("\n", start + max_chars // 2, end)
-            if boundary > start:
-                end = boundary + 1
+            structural = _find_structural_boundary(
+                text, start, end, max_chars // 2, patterns
+            )
+            if structural is not None and structural > start:
+                end = structural
+                boundary_type = "structure"
+            else:
+                boundary = text.rfind("\n", start + max_chars // 2, end)
+                if boundary > start:
+                    end = boundary + 1
+                    boundary_type = "line"
         if end <= start:
             end = min(start + max_chars, length)
         piece = text[start:end]
-        # Maintain line offsets incrementally; repeatedly counting from the
-        # start of a very large file would make chunking quadratic.
         line_end = line_start + piece[:-1].count("\n") if piece else line_start
         chunks.append({
             "chunk": index,
@@ -731,6 +805,7 @@ def split_chunks(text: str, max_chars: int = CHUNK_CHARS) -> list[dict]:
             "line_start": line_start,
             "line_end": line_end,
             "sha256": sha256_bytes(piece.encode("utf-8")),
+            "boundary_type": boundary_type,
             "text": piece,
         })
         line_start += piece.count("\n")
@@ -738,8 +813,6 @@ def split_chunks(text: str, max_chars: int = CHUNK_CHARS) -> list[dict]:
         index += 1
     assert "".join(chunk["text"] for chunk in chunks) == text
     return chunks
-
-
 def default_cache_dir(value: str | None) -> Path:
     return Path(value).expanduser().resolve() if value else DEFAULT_CACHE.resolve()
 
@@ -840,7 +913,7 @@ def cmd_ingest(args: argparse.Namespace) -> int:
     if extractor != extractor_expected:
         print(f"Extraction failed: extractor mismatch ({extractor} != {extractor_expected})", file=sys.stderr)
         return 3
-    chunks = split_chunks(text, args.chunk_chars)
+    chunks = split_chunks(text, args.chunk_chars, source_suffix=normalized_suffix(path))
     atomic_write_text(doc_dir / "content.txt", text)
     # Store text once. The index stores offsets, source locations, hashes,
     # and term frequencies only, allowing ranking before reading source text.
@@ -905,12 +978,67 @@ def cmd_list(args: argparse.Namespace) -> int:
 
 
 def tokenize(value: str) -> list[str]:
-    return [t.casefold() for t in re.findall(r"[\w'-]+", value, flags=re.UNICODE) if len(t) > 1]
+    """Tokenize prose and split common code identifiers while retaining exact names."""
+    output: list[str] = []
+    seen: set[str] = set()
+    for raw in re.findall(r"[\w'-]+", value, flags=re.UNICODE):
+        if len(raw) > 128:
+            continue
+        expanded = re.sub(r"([A-Z]+)([A-Z][a-z])", r"\1 \2", raw)
+        expanded = re.sub(r"([a-z0-9])([A-Z])", r"\1 \2", expanded)
+        candidates = [raw]
+        candidates.extend(re.split(r"[_'-]+", raw))
+        candidates.extend(re.split(r"[_'-]+", expanded))
+        for candidate in candidates:
+            term = candidate.casefold()
+            if len(term) > 1 and len(term) <= 128 and term not in seen:
+                seen.add(term)
+                output.append(term)
+    return output
+
+
+def build_excerpt(text: str, query: str, max_chars: int) -> str:
+    """Return a bounded, line-preserving excerpt around the query match."""
+    if max_chars < 80:
+        max_chars = 80
+    if len(text) <= max_chars:
+        return text
+
+    prefix = "… [context omitted]\n"
+    suffix = "\n… [excerpt truncated; use show]"
+    budget = max(1, max_chars - len(prefix) - len(suffix))
+    folded = text.casefold()
+    phrase = " ".join(query.casefold().split())
+    match_at = folded.find(phrase) if phrase else -1
+    if match_at < 0:
+        positions = [
+            folded.find(term)
+            for term in tokenize(query)
+            if len(term) >= 3 and folded.find(term) >= 0
+        ]
+        match_at = min(positions) if positions else 0
+
+    start = max(0, match_at - budget // 3)
+    if start > 0:
+        previous_newline = text.rfind("\n", 0, start)
+        if previous_newline >= max(0, start - 120):
+            start = previous_newline + 1
+    end = min(len(text), start + budget)
+    if end < len(text):
+        next_boundary = text.rfind("\n", start, end)
+        if next_boundary > start + budget // 2:
+            end = next_boundary
+    excerpt = text[start:end]
+    if start > 0:
+        excerpt = prefix + excerpt.lstrip("\n")
+    if end < len(text):
+        excerpt = excerpt.rstrip("\n") + suffix
+    return excerpt
 
 
 def cmd_search(args: argparse.Namespace) -> int:
     cache_root = default_cache_dir(args.cache_dir)
-    q_tokens = tokenize(args.query)
+    q_tokens = list(dict.fromkeys(tokenize(args.query)))
     if not q_tokens:
         print("Error: query contains no searchable terms.", file=sys.stderr)
         return 2
@@ -960,7 +1088,7 @@ def cmd_search(args: argparse.Namespace) -> int:
                 continue
         content = content_cache[content_file]
         full_text = content[chunk["char_start"]:chunk["char_end"]]
-        excerpt = textwrap.shorten(full_text.replace("\n", " "), width=args.max_chars, placeholder=" … [retrieve full chunk]")
+        excerpt = build_excerpt(full_text, args.query, args.max_chars)
         print(f"\n## Result {rank} | score={score:.3f} | {chunk['source_name']} | doc={chunk['document_id']} chunk={chunk['chunk']} lines={chunk['line_start']}-{chunk['line_end']}")
         print(excerpt)
     if not scored:

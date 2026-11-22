@@ -89,7 +89,9 @@ Never guess the Skill installation path. The local Python package is needed for 
 
 ## Search and retrieval
 
-- Search is lexical and ranks extracted chunks by term overlap/frequency; it is not semantic vector search.
+- Search is lexical (BM25-style) and ranks extracted chunks by term overlap/frequency. Code identifiers are indexed both as written and as common underscore/CamelCase components (for example, `getUserProfile` also matches `get`, `user`, and `profile`). It is not semantic vector search.
+- Text, Markdown, and source-code chunks remain lossless. For supported source types, chunking prefers section headings and common function/class/type declarations when a safe boundary is available, then falls back to a line boundary.
+- Search excerpts preserve line breaks and indentation and are centered near a query match within the selected chunk. Use `show` to retrieve the complete chunk when a code edit or exact context requires it.
 - Search returns bounded excerpts and source metadata. Use show to retrieve a complete chunk only when needed.
 - Use alternate terms or native Claude search when lexical retrieval misses a relevant passage.
 - Preserve source names, PDF page markers, line ranges, and any available cell/slide identifiers when quoting results.

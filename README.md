@@ -122,12 +122,12 @@ OCR is opt-in, processes only sparse-text PDF pages by default, and respects DPI
 |---|:---:|:---:|
 | Extract text, code, DOCX, XLSX, PPTX, and PDF text | Yes, when source files are exposed to the Skill workspace | Yes |
 | Local content-addressed cache | Workspace lifetime; persistence is not guaranteed | Persistent local cache |
-| Lexical search and bounded excerpt retrieval | Yes | Yes |
+| Lexical search and bounded excerpt retrieval | Yes | Yes |\n| Code-aware identifier matching and symbol-aware chunk boundaries | Yes | Yes |\n| Line-preserving excerpts centered around query matches | Yes | Yes |\n| Optional local OCR for images and sparse-text PDF pages | Not guaranteed in Skill VM | Yes, with OCR dependencies |
 | Exact repeated large `Read` suppression | — | Optional hook |
 | Narrow successful test-output compaction | — | Optional hook |
 | Evidence-backed project memory | — | Local SQLite |
 
-**Not implemented yet:** general schema-aware MCP/web-result reduction, semantic code retrieval, visual image understanding beyond OCR, audio/video processing, and independently validated end-to-end savings across representative tasks.
+**Not implemented yet:** general schema-aware MCP/web-result reduction, full AST/LSP navigation, semantic retrieval, visual image understanding beyond OCR, audio/video processing, and independently validated end-to-end savings across representative tasks.
 
 Search is lexical, not semantic. Office extraction is text-oriented and does not fully reconstruct visual layout, charts, embedded objects, or spreadsheet calculation behavior.
 

@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "fidelityflow"
-version = "0.4.0"
+version = "0.5.0"
 description = "Claude-focused context-efficiency toolkit with cached file retrieval, optional local image/PDF OCR, conservative Claude Code output filtering, and evidence-backed project memory"
 readme = "README.md"
 license = "MIT"

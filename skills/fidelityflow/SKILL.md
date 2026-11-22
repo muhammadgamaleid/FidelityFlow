@@ -46,7 +46,7 @@ Do not print an entire extracted document, cache, or archive into chat. Search f
 
 - The local engine extracts text/code, Markdown, CSV/TSV, JSON/JSONL, YAML, XML/HTML, DOCX, XLSX, PPTX, and PDF when pypdf is installed.
 - The cache is content-addressed by source hash and extractor version. Re-ingesting unchanged content can avoid repeated extraction; it does not make the original first upload free.
-- Search is lexical. A failed search may require alternate terms or native Claude search; do not invent a result.
+- Search is lexical (BM25-style), not semantic. Code identifiers are indexed both as written and as common underscore/CamelCase components; source-aware chunking prefers common function/class/type boundaries when possible. Search excerpts preserve line breaks and are centered near query matches. A failed search may require alternate terms or native Claude search; do not invent a result.
 - PDF extraction preserves page markers but may miss scanned text, complex tables, columns, charts, figures, or layout.
 - DOCX extraction does not preserve exact pagination, embedded media, or all review/layout metadata.
 - XLSX extraction is not a spreadsheet calculation engine and does not reproduce charts, pivots, macros, or recalculation semantics.

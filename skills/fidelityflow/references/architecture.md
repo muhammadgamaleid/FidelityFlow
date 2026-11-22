@@ -52,7 +52,7 @@ Current extractors cover text/code, Markdown, CSV/TSV, JSON/JSONL, YAML, XML/HTM
 
 The local cache is content-addressed by source hash, extractor version, chunk settings, and OCR settings. It stores extracted content once and stores chunk offsets/metadata separately. It does not modify the source file.
 
-Search is lexical. It returns bounded excerpts; the show command retrieves a complete indexed chunk when necessary.
+Search is lexical (BM25-style), not semantic. It expands common code identifiers into component terms, prefers Markdown headings and common code symbol boundaries when chunking, and returns line-preserving excerpts centered around query matches. The show command retrieves a complete indexed chunk when necessary.
 
 ### 3. Claude Code hooks
 
@@ -103,6 +103,7 @@ The read_claude_usage.py utility reads usage fields exposed in Claude Code JSONL
 
 ## Planned expansion (not implemented)
 
+- Full AST/LSP code navigation and semantic retrieval.
 - Advanced image/page-region understanding beyond text OCR.
 - More complete document extraction and source maps.
 - Schema-aware MCP and tool-result adapters.
