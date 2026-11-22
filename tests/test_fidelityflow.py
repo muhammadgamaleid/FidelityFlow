@@ -639,7 +639,7 @@ class InstallerTests(unittest.TestCase):
                 cwd=tmp, capture_output=True, text=True, timeout=20,
             )
             self.assertEqual(proc.returncode, 2)
-            self.assertIn("only with --scope user", proc.stderr)
+            self.assertIn("only be installed with --scope user", proc.stderr)
             self.assertFalse((Path(tmp) / ".claude").exists())
 
     def test_user_install_copies_skill_and_cli_without_enabling_hooks(self):
