@@ -10,7 +10,7 @@ Anthropic lists Skills as available on Free, Pro, Max, Ultra, Team, and Enterpri
 2. Enable **Code execution and file creation** (or **Create and edit files**).
 3. Open **Customize → Skills**.
 4. Click **+ → Create skill → Upload a skill**.
-5. Select dist/fidelityflow-skill.zip.
+5. Select dist/fidelityflow-claude-ai.zip.
 6. Enable FidelityFlow in the Skills list.
 
 For Team accounts, the organization must have Skills enabled. Enterprise owners must enable both Code execution and file creation and Skills in **Organization settings → Plugins & skills → Policy**. Administrators may impose additional policies.
@@ -63,6 +63,19 @@ python install.py --scope user --enable-output-hook
 
 Review the Claude settings file after installation. The installer backs up existing settings and merges its registrations, but users should still inspect hook commands and local archive paths. The current hooks are opt-in and intentionally narrow.
 
+## Optional local OCR for Claude Code
+
+OCR is available only when the local machine has the optional Python packages, the Tesseract executable, and the required language data installed.
+
+~~~bash
+python -m pip install -e ".[ocr]"
+fidelityflow doctor
+fidelityflow ingest "scanned-report.pdf" --ocr --ocr-lang ara+eng
+fidelityflow ingest "screenshot.png" --ocr --ocr-lang ara+eng
+~~~
+
+OCR is opt-in. It processes sparse-text PDF pages only, respects the configured page/DPI limits, and keeps the original file unchanged. Claude.ai's managed workspace does not guarantee Tesseract or its language data; do not assume this local OCR workflow works in web chat.
+
 ## Claude Code: native usage habits
 
 - Use /context to inspect what occupies the context window and /usage to inspect usage when available.
@@ -83,4 +96,4 @@ Review the Claude settings file after installation. The installer backs up exist
 
 ## What FidelityFlow does not change
 
-FidelityFlow does not modify Claude pricing, subscription limits, model selection, thinking budgets, prompt-cache policy, automatic compaction thresholds, or Claude.ai's internal upload pipeline. It does not yet process images/OCR or generically rewrite MCP and web-search results. It does not promise a saving percentage until measured against a controlled baseline.
+FidelityFlow does not modify Claude pricing, subscription limits, model selection, thinking budgets, prompt-cache policy, automatic compaction thresholds, or Claude.ai's internal upload pipeline. It supports opt-in local OCR when Tesseract and the optional dependencies are installed. It does not yet generically rewrite MCP and web-search results. It does not promise a saving percentage until measured against a controlled baseline.

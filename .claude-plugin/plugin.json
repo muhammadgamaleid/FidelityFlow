@@ -2,7 +2,7 @@
   "$schema": "https://json.schemastore.org/claude-code-plugin.json",
   "name": "fidelityflow",
   "displayName": "FidelityFlow",
-  "version": "0.3.1",
+  "version": "0.4.0",
   "description": "Conservative Claude context-usage optimization through local file indexing, bounded retrieval, and source-preserving workflows.",
   "author": {
     "name": "Muhammad Gamal Eid",

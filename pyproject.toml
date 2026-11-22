@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "fidelityflow"
-version = "0.3.1"
-description = "Claude-focused context-efficiency toolkit with cached file retrieval, conservative Claude Code output filtering, and evidence-backed project memory"
+version = "0.4.0"
+description = "Claude-focused context-efficiency toolkit with cached file retrieval, optional local image/PDF OCR, conservative Claude Code output filtering, and evidence-backed project memory"
 readme = "README.md"
 license = "MIT"
 license-files = ["LICENSE"]
@@ -14,6 +14,7 @@ dependencies = []
 
 [project.optional-dependencies]
 pdf = ["pypdf>=4,<7"]
+ocr = ["Pillow>=10,<13", "pytesseract>=0.3.13", "PyMuPDF>=1.24,<2", "pypdf>=4,<7"]
 test = ["pytest>=8"]
 dev = ["build>=1.2", "pytest>=8", "pypdf>=4,<7"]
 

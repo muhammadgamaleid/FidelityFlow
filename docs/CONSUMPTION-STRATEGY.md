@@ -46,7 +46,7 @@ These hooks are deliberately narrow. General MCP, web search, database, arbitrar
 |---|---|---|
 | File extraction | Text, Office XML-derived content, PDF text | Stronger per-format extraction and source maps |
 | File retrieval | Local cache and lexical chunk search | Better ranking, metadata filters, structural retrieval |
-| Images and scans | Not supported by local extractor | OCR, image analysis, page/region selection, quality checks |
+| Images and scans | Opt-in local Tesseract OCR for images and sparse-text PDF pages; no visual reasoning | Image-region analysis, layout understanding, OCR quality scoring, and source-region maps |
 | Conversation history | No direct rewrite in Claude.ai; no full Claude Code history compressor | Platform-safe session/context analysis and measured compaction guidance |
 | Tool output | Exact repeated Read and limited successful tests only | Parsers for known tool families and MCP contracts |
 | MCP definitions/results | No general optimizer | Tool discovery hygiene, schema budgeting, result projection |
@@ -78,7 +78,7 @@ Any unknown, lossy, ambiguous, or unrecoverable transformation must fail open.
 - Make no percentage claims before the test set is run.
 
 ### P1 — File and image processing
-- Add OCR for scanned PDFs and standalone images with page/region references.
+- Improve optional OCR with page-level provenance and recognition-quality checks.
 - Improve DOCX/XLSX/PPTX extraction without discarding layout-critical metadata.
 - Add image deduplication and task-aware resolution/region handling.
 - Keep original bytes and support retrieval of exact pages, cells, slides, and regions.

@@ -114,7 +114,7 @@ For PDF extraction, install the `pdf` extra as shown above.
 | Narrow successful test-output compaction | — | Optional hook |
 | Evidence-backed project memory | — | Local SQLite |
 
-**Not implemented yet:** standalone image OCR, scanned-PDF OCR, broad MCP/web/tool-result optimization, generic conversation-history rewriting, and independently validated end-to-end token savings.
+**Not implemented yet:** broad MCP/web/tool-result optimization, generic conversation-history rewriting, visual image understanding beyond OCR, audio/video processing, and independently validated end-to-end token savings.
 
 Search is lexical, not semantic. Office extraction is text-oriented and does not fully reconstruct visual layout, charts, embedded objects, or spreadsheet calculation behavior.
 
@@ -141,7 +141,7 @@ A shorter tool result is not automatically a real saving. A fair evaluation coun
 - Actual API cost when the user supplies the applicable model pricing.
 - Task correctness, evidence fidelity, retrieval accuracy, and output completeness.
 
-For a Claude Code JSONL transcript:
+For a Claude Code JSONL transcript, inspect actual recorded usage:
 
 ```bash
 python benchmarks/read_claude_usage.py "/path/to/session.jsonl"
@@ -153,11 +153,10 @@ This reads usage fields present in the transcript. It does not estimate missing 
 
 Work is sequenced from the most contained improvements to the deeper integrations:
 
-1. **File and document fidelity:** improve Office structure and source references.
-2. **Image and scanned-document processing:** optional OCR with page/region traceability.
-3. **Tool and MCP outputs:** safe, schema-aware adapters with reversible originals.
-4. **Session and context management:** better compaction guidance and supported Claude Code lifecycle handling.
-5. **Benchmark suite:** controlled comparisons of token usage, cost, latency, and task quality.
+1. **Tool and MCP outputs:** safe, schema-aware adapters with reversible originals.
+2. **Session and context management:** better compaction guidance and supported Claude Code lifecycle handling.
+3. **Visual document understanding:** chart/diagram interpretation and OCR region quality checks.
+4. **Benchmark suite:** controlled comparisons across more task categories, tools, and competitor implementations.
 
 Features remain labelled as planned until implemented and tested.
 

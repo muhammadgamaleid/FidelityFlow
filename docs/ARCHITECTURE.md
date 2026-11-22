@@ -48,7 +48,7 @@ The bundled file-processing implementation is scripts/fidelityflow.py inside the
 
 Current extractors cover text/code, Markdown, CSV/TSV, JSON/JSONL, YAML, XML/HTML, DOCX, XLSX, PPTX, and PDF text when optional pypdf is installed.
 
-The local cache is content-addressed by source hash plus extractor version. It stores extracted content once and stores chunk offsets/metadata separately. It does not modify the source file.
+The local cache is content-addressed by source hash, extractor version, chunk settings, and OCR settings. It stores extracted content once and stores chunk offsets/metadata separately. It does not modify the source file.
 
 Search is lexical. It returns bounded excerpts; the show command retrieves a complete indexed chunk when necessary.
 
@@ -101,7 +101,7 @@ The read_claude_usage.py utility reads usage fields exposed in Claude Code JSONL
 
 ## Planned expansion (not implemented)
 
-- OCR and image/page-region processing.
+- Advanced image/page-region understanding beyond text OCR.
 - More complete document extraction and source maps.
 - Schema-aware MCP and tool-result adapters.
 - Better code structure and retrieval.

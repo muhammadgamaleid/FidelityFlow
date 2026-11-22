@@ -45,7 +45,7 @@ Project memory:
   stats           Show local memory counts
 
 Run 'fidelityflow <command> --help' for command-specific options.
-For PDF extraction, install: python -m pip install 'fidelityflow[pdf]'
+For PDF text extraction, install: python -m pip install 'fidelityflow[pdf]'. For local image/scanned-PDF OCR, install the [ocr] extra and the Tesseract executable plus language data.
 """)
 
 

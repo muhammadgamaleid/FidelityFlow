@@ -41,6 +41,7 @@ class SkillPackagingTests(unittest.TestCase):
             names = set(zf.namelist())
         self.assertIn("fidelityflow/SKILL.md", names)
         self.assertIn("fidelityflow/scripts/fidelityflow.py", names)
+        self.assertIn("fidelityflow/scripts/ocr_engine.py", names)
         self.assertIn("fidelityflow/references/file-processing.md", names)
 
 
@@ -670,7 +671,7 @@ class UnifiedPackageCliTests(unittest.TestCase):
             capture_output=True, text=True, timeout=10,
         )
         self.assertEqual(version.returncode, 0, version.stderr)
-        self.assertIn("0.3.1", version.stdout)
+        self.assertIn("0.4.0", version.stdout)
 
 
 class InstallerTests(unittest.TestCase):

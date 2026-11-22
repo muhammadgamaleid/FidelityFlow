@@ -20,6 +20,7 @@ REQUIRED_SKILL_FILES = {
     "LICENSE",
     "SKILL.md",
     "scripts/fidelityflow.py",
+    "scripts/ocr_engine.py",
     "references/file-processing.md",
     "references/output-compaction.md",
     "references/platform-setup.md",

@@ -51,7 +51,8 @@ Do not print an entire extracted document, cache, or archive into chat. Search f
 - DOCX extraction does not preserve exact pagination, embedded media, or all review/layout metadata.
 - XLSX extraction is not a spreadsheet calculation engine and does not reproduce charts, pivots, macros, or recalculation semantics.
 - PPTX extraction does not fully represent images, diagrams, notes, animations, or spatial layout.
-- Standalone images, OCR, audio, and video are not currently processed by the local CLI.
+- Standalone image OCR and sparse-text PDF page OCR are available only in the local CLI with the optional OCR dependencies, the Tesseract executable, and language data installed. They require explicit `--ocr`; they are not guaranteed to run in Claude.ai's managed Skill workspace.
+- Audio and video extraction are not currently supported.
 - The original file remains authoritative. An extracted index is a searchable derivative, not a replacement.
 
 ## Claude.ai boundary
