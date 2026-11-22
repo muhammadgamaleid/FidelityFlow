@@ -633,7 +633,7 @@ class UsageTelemetryTests(unittest.TestCase):
             self.assertIn("cache_creation_input_tokens: 30", proc.stdout)
             self.assertIn("cache_read_input_tokens: 40", proc.stdout)
             self.assertIn("output_tokens: 20", proc.stdout)
-            self.assertIn("input_total_including_cache_reads: 170", proc.stdout)
+            self.assertIn("context_input_tokens_including_cache: 170", proc.stdout)
 
 
 

@@ -581,7 +581,7 @@ def parse_pdf(
     except ImportError as exc:
         raise RuntimeError(
             "PDF extraction requires optional dependency pypdf. "
-            "Install with: python -m pip install -e ".[pdf]"."
+            'Install with: python -m pip install -e ".[pdf]".'
         ) from exc
     reader = PdfReader(str(path))
     extracted_pages = [(page.extract_text() or "") for page in reader.pages]
