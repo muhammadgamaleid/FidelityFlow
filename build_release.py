@@ -13,7 +13,7 @@ import zipfile
 ROOT = Path(__file__).resolve().parent
 SKILL_ROOT = ROOT / "skills" / "fidelityflow"
 PLUGIN_MANIFEST = ROOT / ".claude-plugin" / "plugin.json"
-DEFAULT_SKILL_OUTPUT = ROOT / "dist" / "fidelityflow-skill.zip"
+DEFAULT_SKILL_OUTPUT = ROOT / "dist" / "fidelityflow-claude-ai.zip"
 DEFAULT_PLUGIN_OUTPUT = ROOT / "dist" / "fidelityflow-plugin.zip"
 
 REQUIRED_SKILL_FILES = {
