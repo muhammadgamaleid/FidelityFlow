@@ -1,62 +1,67 @@
 # File processing and source fidelity
 
-## Original is authoritative
+## Source-first design
 
-FidelityFlow creates a searchable derivative; it never edits the original source. It records SHA-256, extractor version, warnings, source name, and chunk offsets. The cache key is the source file's SHA-256 plus extractor version. Re-ingesting an unchanged file with the same extractor version is a cache hit.
+FidelityFlow never edits the original file. It creates a searchable derivative and records source identity, extractor version, warnings, hashes, and chunk offsets. The cache key combines the source SHA-256 and extractor version. An unchanged file can be re-used without repeating extraction.
 
-## Supported local CLI extraction
+An extracted index is not a replacement for the source. Retrieve the original passage or use Claude's native file handling whenever visual layout, exact calculations, or missing structure affects the task.
 
-| Format | Extracted | Important limitations |
+## Current local extraction support
+
+| Format | Extracted today | Limitations |
 |---|---|---|
-| TXT, Markdown, RST, logs, source code | UTF-8 text | Invalid UTF-8 bytes are replaced and explicitly warned; original remains authoritative. |
-| CSV / TSV / JSON / JSONL / YAML / XML / HTML | Raw text | No automatic semantic validation or schema inference. |
-| DOCX | Main document paragraphs, heading styles, and table text | Pagination, tracked changes, comments, headers/footers, floating objects, embedded media, and exact layout are not preserved. XML parts above the 64 MiB safety limit are rejected. |
-| XLSX | Sheet names, cell addresses, text/numeric values, formulas, cached formula values | Formatting, charts, pivots, macros, external links, data validation, and full formula recalculation semantics are not reproduced. XML parts above the 64 MiB safety limit are rejected. |
-| PPTX | Slide text and basic table cell text | Images, diagrams, speaker notes, animations, and spatial layout are not fully represented. XML parts above the 64 MiB safety limit are rejected. |
-| PDF | Per-page text with `[PAGE n]` markers | Requires optional `pypdf`; scans, figures, complex tables, columns, and visual layout may require native visual inspection or OCR. |
+| TXT, Markdown, RST, logs, source code | UTF-8 text | Invalid bytes are replaced with a warning; source remains authoritative |
+| CSV / TSV / JSON / JSONL / YAML / XML / HTML | Raw text | No general semantic schema inference or validation |
+| DOCX | Main paragraphs, heading styles, table text | Does not preserve pagination, tracked changes, comments, headers/footers, floating objects, embedded media, or exact layout |
+| XLSX | Sheet names, cell addresses, text/numeric values, formulas, cached formula values | Does not reproduce formatting, charts, pivots, macros, external links, validations, or formula recalculation |
+| PPTX | Slide text and basic table cell text | Does not fully extract images, diagrams, speaker notes, animations, or spatial layout |
+| PDF | Per-page text with [PAGE n] markers | Requires optional pypdf; scans, figures, complex tables, columns, and visual layout are not reliably represented |
 
-Legacy `.doc`, `.xls`, and `.ppt` are not supported by the local extractor. Save to a modern format or use Claude's native document handling. Images and audio/video are not extracted by this CLI.
+OOXML safety limits apply to archive members, aggregate expanded size, entry count, and extreme compression ratios. Legacy .doc, .xls, and .ppt formats are not supported by the current local extractor.
+
+**Not implemented yet:** standalone image ingestion, OCR for scanned pages, audio/video extraction, image-region analysis, chart understanding, and visual layout reconstruction.
 
 ## Commands
 
-```bash
-python "${CLAUDE_SKILL_DIR}/scripts/fidelityflow.py" doctor
-python "${CLAUDE_SKILL_DIR}/scripts/fidelityflow.py" ingest "report.pdf"
-python "${CLAUDE_SKILL_DIR}/scripts/fidelityflow.py" ingest-dir "./research-library"
-python "${CLAUDE_SKILL_DIR}/scripts/fidelityflow.py" list
-python "${CLAUDE_SKILL_DIR}/scripts/fidelityflow.py" search --query "revenue recognition"
-python "${CLAUDE_SKILL_DIR}/scripts/fidelityflow.py" show --document <id> --chunk 0
-```
+~~~bash
+fidelityflow doctor
+fidelityflow ingest "report.pdf"
+fidelityflow ingest-dir "./research-library"
+fidelityflow list
+fidelityflow search --query "revenue recognition" --top-k 5
+fidelityflow show --document DOCUMENT_ID --chunk 0
+~~~
 
-`ingest-dir` skips common generated/vendor folders such as `.git`, `.venv`, `node_modules`, `__pycache__`, `.fidelityflow`, `.idea`, and `.vscode`, as well as the configured cache directory. It processes only known file extensions.
+The bundled Claude Skill script can be run with the exact path exposed by the Skill execution environment:
 
-## Cache design
+~~~bash
+python "/resolved/path/to/fidelityflow/scripts/fidelityflow.py" doctor
+python "/resolved/path/to/fidelityflow/scripts/fidelityflow.py" ingest "/exact/path/to/report.pdf" --cache-dir "$PWD/.fidelityflow/cache"
+python "/resolved/path/to/fidelityflow/scripts/fidelityflow.py" search --query "specific question" --top-k 5 --max-chars 1400 --cache-dir "$PWD/.fidelityflow/cache"
+~~~
 
-- Original file remains untouched.
-- Extracted text is stored once in `content.txt`.
-- `chunks.jsonl` stores chunk offsets, line ranges, hashes, and term-frequency metadata only; it does not duplicate chunk text.
-- Search returns relevant excerpts. `show` retrieves the complete chunk.
-- A changed file has a new content hash and a new cache entry. The current release does not claim arbitrary page-level incremental parsing.
-- Cache contents are local and unencrypted. They may include sensitive content; protect the cache directory accordingly.
+Never guess the Skill installation path. The local Python package is needed for the native Claude Code CLI; the bundled Skill script is packaged separately for Claude.ai.
 
-## Claude.ai bundled-script path
+## Search and retrieval
 
-Claude Skills run in a VM filesystem and may execute bundled scripts through Bash. Script source is not inserted into model context merely because it is executed; the script's stdout/stderr is what can enter context. Use this to extract and index a long source without asking Claude to reproduce its complete contents in chat.
+- Search is lexical and ranks extracted chunks by term overlap/frequency; it is not semantic vector search.
+- Search returns bounded excerpts and source metadata. Use show to retrieve a complete chunk only when needed.
+- Use alternate terms or native Claude search when lexical retrieval misses a relevant passage.
+- Preserve source names, PDF page markers, line ranges, and any available cell/slide identifiers when quoting results.
+- Do not ingest every repository or directory automatically. Select only sources relevant to the task.
 
-The uploaded Skill folder is `fidelityflow/`. Resolve its actual location in the VM before running the bundled CLI. Do not guess the attachment path: use the exact path exposed by the file/tool environment. Example:
+## Cache and privacy
 
-```bash
-python fidelityflow/scripts/fidelityflow.py doctor
-python fidelityflow/scripts/fidelityflow.py ingest "/exact/path/to/source.pdf" --cache-dir "$PWD/.fidelityflow/cache"
-python fidelityflow/scripts/fidelityflow.py search --query "specific question" --top-k 5 --max-chars 1400 --cache-dir "$PWD/.fidelityflow/cache"
-python fidelityflow/scripts/fidelityflow.py show --document <document-id> --chunk 0 --cache-dir "$PWD/.fidelityflow/cache"
-```
+- Extracted content is stored once in the local cache; chunk metadata stores offsets rather than duplicating full text.
+- Cache entries are local and unencrypted. They can contain sensitive source material.
+- The cache is content-addressed; changed source content gets a different cache identity.
+- Claude.ai Skill workspace caches may disappear after a reset or unrelated chat. Do not promise persistence.
+- Do not delete or replace the original source after indexing.
 
-The cache must be placed in a writable task/project workspace, not inside the Skill folder. Reuse it while that workspace remains available. Anthropic does not guarantee this local cache survives unrelated chats or VM resets. The original upload and Claude Project Knowledge remain the source of truth.
+## Claude.ai upload boundary
 
-A Skill cannot intercept Claude.ai's internal upload/parser pipeline or guarantee that initial attachment processing is excluded from context. For recurring libraries, upload documents once to Project Knowledge and prefer Claude's native retrieval over duplicating the same collection in FidelityFlow. Use Claude's native document skills for visual PDFs, complex Word layouts, presentation graphics, and spreadsheet calculations. The local CLI is an optional searchable derivative, not a replacement for native fidelity-sensitive processing.
+Claude.ai controls its own initial attachment ingestion and document parser. A custom Skill cannot intercept that pipeline, rewrite the attachment before Claude receives it, or guarantee that the initial upload avoids context/usage accounting.
 
+When a file is already available in the Skill execution workspace, local extraction and bounded retrieval can avoid repeatedly printing its full content into the conversation. For recurring libraries, use Claude Projects and Project Knowledge when appropriate; do not duplicate a complete library in both systems without a measured benefit.
 
-## Cache write safety
-
-The local indexer rejects symlinked managed cache directories and destination files, and writes content, index, and manifest files through temporary files followed by an atomic replace. OOXML extraction limits individual XML members, aggregate expanded archive size, archive entry count, and extreme compression ratios.
+For visual PDFs, scanned pages, charts, spreadsheet calculations, and layout-sensitive tasks, prefer Claude's native document capabilities or a dedicated visual workflow. The current FidelityFlow extractor is text-oriented.

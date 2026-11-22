@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "fidelityflow"
 version = "0.3.1"
-description = "Unified context-efficiency toolkit and evidence-backed project memory for Claude.ai and Claude Code"
+description = "Claude-focused context-efficiency toolkit with cached file retrieval, conservative Claude Code output filtering, and evidence-backed project memory"
 readme = "README.md"
 license = "MIT"
 license-files = ["LICENSE"]
@@ -24,7 +24,6 @@ fflearn = "fidelityflow.learning.cli:main"
 [tool.setuptools.packages.find]
 where = ["."]
 include = ["fidelityflow*", "fidelityflow_learning*", "skills*"]
-namespaces = true
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

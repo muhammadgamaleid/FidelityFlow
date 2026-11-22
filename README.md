@@ -1,213 +1,185 @@
-# FidelityFlow v0.3.1
-**Unified Context & Project Learning Toolkit for Claude.ai & Claude Code**
+# FidelityFlow
 
----
+**Reduce avoidable Claude context usage without silently sacrificing task quality.**
 
-## 🎯 Goals at a Glance
+FidelityFlow is a Claude-focused toolkit for processing large files before repeatedly sending their contents to Claude, retrieving relevant excerpts, and conservatively filtering a small set of redundant Claude Code tool outputs.
 
-| Capability | Claude.ai | Claude Code |
-|------------|-----------|-------------|
-| **File Indexing & Search** | ✅ Available | ✅ Available |
-| **Direct Memory Persistence** | ❌ (Temporary VM scope) | ✅ Persistent SQLite |
-| **Evidence-Backed Project Memory** | ⚠️ Limited (requires manual `fflearn`) | ✅ Full (multi-session verification) |
-| **CLI Commands** | ✅ As a bundled Skill | ✅ Native CLI (`fidelityflow`, `fflearn`) |
-| **Cross-Session Fact Storage** | ⚠️ Lost on VM reset | ✅ Stored in `~/.fidelityflow/learning.sqlite3` |
-| **Security Awareness** | ✅ Context-based | ✅ Context-based |
+Its rule is simple: **measure real savings, preserve the source, and never trade away information needed for the task.**
 
----
+> **Project status:** Early and actively developed. The current release provides local file extraction and indexing, exact repeated-Read suppression in Claude Code, narrowly scoped successful test-output compaction, and evidence-backed project memory. Image/OCR processing, general MCP-result optimization, conversation-history interception, and measured end-to-end savings are not implemented yet. No universal saving percentage is claimed.
 
-## 📦 About FidelityFlow
+## Choose the right Claude upload
 
-FidelityFlow v0.3.1 unifies the file-processing and project-memory capabilities:
+| Upload type | Free plan | Paid plans |
+|---|---:|---:|
+| **FidelityFlow Skill** | **Yes** | **Yes** |
+| **FidelityFlow Plugin** | No | **Yes** (Pro, Max, Ultra, Team, Enterprise) |
 
-1. **File Processing & Caching** *(from v0.1.0)*  
-   Extracts, indexes, and searches large documents (PDF, DOCX, XLSX, PPTX, Markdown…) without re-reading unchanged files.
+Custom Skills are available on Free and paid Claude plans when **Code execution and file creation** is enabled. Custom Plugins are currently available only on paid plans. Team and Enterprise administrators may apply organization policies.
 
-2. **Evidence-Backed Project Memory** *(introduced in v0.2.0 and unified in v0.3.1)*  
-   Records, verifies, and recalls verified project facts across **independent Claude sessions** using SQLite.
+**Free users should use the Skill archive.** The Plugin archive is optional for paid users. Both packages include the same FidelityFlow Skill; the Plugin package is a convenient wrapper, not an additional token-saving engine.
 
-3. **Output Archiving (opt-in)**  
-   Preserves raw stdout before compacting detected successful test runs.
+Official details: [Use Skills in Claude](https://support.claude.com/en/articles/12512180-use-skills-in-claude) · [Use Plugins in Claude](https://support.claude.com/en/articles/13837440-use-plugins-in-claude).
 
-**Core Philosophy:** Never shrink, truncate, or discard requested depth. FidelityFlow removes only verifiable redundancy.
+## What FidelityFlow does today
 
----
+| Capability | Claude.ai Skill | Claude Code |
+|---|---|---|
+| Extract supported text and Office/PDF content | Yes, when files are accessible in the Skill execution workspace | Yes |
+| Content-addressed local cache | Workspace lifetime; persistence not guaranteed | Persistent local cache |
+| Lexical search and bounded excerpt retrieval | Yes | Yes |
+| Exact duplicate Read result suppression | No | Optional hook |
+| Conservative successful test-output compaction | No | Optional hook |
+| Evidence-backed project memory | No persistent local SQLite memory | Yes |
+| Image OCR and visual-image processing | Not yet | Not yet |
+| General MCP, web-search, or arbitrary tool-result optimization | Not yet | Not yet |
+| Control over Claude's initial attachment ingestion | No | Not applicable to local pre-processing |
 
-## 🧑‍💻 Getting Started
+The current search engine is lexical, not semantic. PDF extraction requires optional pypdf in a local Python installation. Scanned PDFs, images, complex visual layouts, and legacy Office formats need other handling.
 
-### A. On Claude.ai (Web App)
+## Get the upload packages
 
-1. **Enable capabilities:**  
-   **Settings → Capabilities** → enable **Code execution & file creation**.
-2. **Install the Skill:**  
-   - From the FidelityFlow repository checkout, run `python build_release.py --check`.
-   - Click **Customize → Skills → Create skill** and upload `dist/fidelityflow-claude-ai.zip`.
-   - Enable FidelityFlow.
-3. **Use in chat:**
-   ```bash
-   python fidelityflow/scripts/fidelityflow.py ingest "/exact/path/to/report.pdf"
-   python fidelityflow/scripts/fidelityflow.py search --query "revenue projection" --top-k 3
-   ```
-   > ⚠️ Cache lifetime is limited to the current VM session. For persistent memory, use Claude Code or native Project Knowledge.
+### 1. Download the project
 
----
+Clone the repository if you have access:
 
-### B. On Claude Code (CLI)
-
-```bash
-cd FidelityFlow
-python -m pip install -e ".[pdf]"
-```
-
-Verify and start:
-```bash
-fidelityflow doctor
-fidelityflow ingest docs/architecture.docx
-fidelityflow search --query "performance obligations"
-```
-
-Enable optional hooks (read-dedup, test-archive):
-```bash
-python install.py --scope user --enable-output-hook
-```
-
----
-
-## 🔧 Detailed Capabilities
-
-### File Indexing (`ingest` + `search`)
-- **Formats:** PDF (via `pypdf`), DOCX, XLSX, PPTX, CSV/TSV, Markdown, JSON, YAML, source code, plain text.
-- **Caching:** Content-addressed via SHA-256 + extractor version. Unchanged files return `cache_hit`.
-- **Search:** Lexical BM25-style over extracted chunks.
-
-```bash
-fidelityflow ingest-dir "./research-library"
-fidelityflow search --query "API key rotation" --top-k 5
-```
-
----
-
-### Memory Retention (`fflearn observe` + `recall`)  <!-- introduced in 0.3.0 -->
-- Facts are stored in `~/.fidelityflow/learning.sqlite3`.
-- **Multi-session verification:** Requires two independent sessions by default. The threshold is fixed by the first observation for each key/value.
-- **Contradiction handling:** Conflicting values are suspended until human confirmation.
-
-```bash
-export CLAUDE_SESSION_ID="session-$(date +%s)"
-
-# Observe a fact
-fflearn observe \
-  --key test.command \
-  --value "pytest -q" \
-  --evidence "Exit code 0; all tests passed"
-
-# List pending candidates
-fflearn candidates
-
-# Manually confirm
-fflearn confirm --key test.command --value "pytest -q"
-
-# Recall confirmed facts
-fflearn recall
-```
-
----
-
-### Output Archiving (opt-in hook)
-When the optional `PostToolUse` hook is enabled:
-
-```bash
-# View archived stdout
-fidelityflow show-archive --ref ARCHIVE_REF
-fidelityflow search-archive --ref ARCHIVE_REF --query "FAILED test_xyz"
-```
-
----
-
-## ⚙️ Common Commands
-
-| Command | Description |
-|---------|-------------|
-| `fidelityflow doctor` | Check runtime and dependencies |
-| `fidelityflow ingest <file>` | Extract and index a file |
-| `fidelityflow ingest-dir <dir>` | Batch index with exclusion of `.git`, `.venv`, etc. |
-| `fidelityflow search --query "text"` | Search content in indexed files |
-| `fflearn observe --key K --value V --evidence E` | Record a verified fact |
-| `fflearn recall` | Recall confirmed facts |
-| `fflearn candidates` | List pending confirmation candidates |
-| `fflearn confirm --key K --value V` | Manually confirm a candidate |
-| `fidelityflow show-archive --ref ID` | View archived stdout |
-| `fidelityflow search-archive --ref ID --query Q` | Search archived output |
-
----
-
-## 🧪 Known Limitations
-
-| Category | Limitation |
-|----------|------------|
-| OCR-scanned PDFs | Require external OCR tools |
-| Visual layout & graphics | May lose non-text representation |
-| Cache in Claude.ai | Lost on VM reset; migrate to Claude Code for persistence |
-| Evidence requirement | Facts need **2+ independent sessions** for automatic promotion |
-
----
-
-## 🔐 Privacy & Safety
-
-- **Local-only storage** — No network calls, no telemetry, no cost.
-- **Fail-open design** — Unknown or ambiguous output is never transformed.
-- **Sensitive data redaction** — Best-effort masking of API keys, tokens, passwords before storage.
-- **Double-verification** — Facts are stored only after independent confirmation from ≥2 sessions.
-
----
-
-## 📚 Documentation
-
-- [Architecture Overview](docs/ARCHITECTURE.md)
-- [Learning Memory Design](docs/LEARNING-MEMORY.md)
-- [File Processing Limits](skills/fidelityflow/references/file-processing.md)
-- [Output Compaction Policy](skills/fidelityflow/references/output-compaction.md)
-
----
-
-## 📄 License
-
-**MIT License** — See [LICENSE](LICENSE).
-
----
-
-## 🚀 Quick Setup (Code Example)
-
-```bash
+~~~bash
 git clone https://github.com/muhammadgamaleid/FidelityFlow.git
 cd FidelityFlow
+~~~
+
+Or download the source ZIP from GitHub and extract it.
+
+### 2. Build and validate both packages
+
+Python 3.10 or newer is required:
+
+~~~bash
+python build_release.py --check
+~~~
+
+This creates:
+- **dist/fidelityflow-skill.zip** — for Free and paid Claude accounts.
+- **dist/fidelityflow-plugin.zip** — for paid Claude accounts only.
+
+The command validates Skill metadata, internal links, mirrored documentation, the Plugin manifest, package contents, and ZIP integrity.
+
+You can also download the **fidelityflow-claude-uploads** artifact from a successful GitHub Actions run. It contains both archives.
+
+## Install on Claude.ai
+
+### Option A — Skill (Free and paid plans)
+
+1. Open Claude and go to **Settings → Capabilities**.
+2. Enable **Code execution and file creation**. In the newer Settings layout this may appear as **Create and edit files**.
+3. Open **Customize → Skills**.
+4. Click **+ → Create skill → Upload a skill**.
+5. Select **dist/fidelityflow-skill.zip**.
+6. Enable FidelityFlow in your Skills list.
+
+The upload UI may also accept a .skill or .md file. The ZIP generated by this project contains a top-level fidelityflow/SKILL.md folder structure.
+
+### Option B — Plugin (paid plans only)
+
+1. Open **Customize → Plugins**.
+2. Choose the option to upload a custom Plugin.
+3. Select **dist/fidelityflow-plugin.zip**.
+4. Enable FidelityFlow.
+
+The Plugin archive currently bundles the FidelityFlow Skill only. It does **not** bundle a hosted service, MCP server, sub-agent, or chat hook. Plugin hooks and sub-agents do not run in ordinary web chat.
+
+### Use it
+
+Ask Claude to use FidelityFlow when working with a large file or recurring collection:
+
+- "Use FidelityFlow to index this accessible report, then search for the sections about operating costs. Show only relevant excerpts and page references."
+- "Search the files already indexed by FidelityFlow for the authentication flow. Do not print the entire files."
+- "Before reading a large document again, check whether FidelityFlow already has a cache entry."
+
+For a small, one-off file, normal Claude file handling may be simpler. FidelityFlow's own instructions and scripts have overhead; use them when expected repeated retrieval or tool-output savings can exceed that overhead.
+
+## Install for Claude Code
+
+From the repository directory:
+
+~~~bash
 python -m pip install -e ".[pdf]"
-
-# Check the environment
 fidelityflow doctor
+python install.py --scope user
+~~~
 
-# Index documents
-fidelityflow ingest "/path/to/reports/annual-2025.pdf"
-fidelityflow ingest-dir "./research-library"
+Enable optional Claude Code hooks only when you explicitly want them:
 
-# Search indexed content
-fidelityflow search --query "revenue projection" --top-k 3
+~~~bash
+python install.py --scope user --enable-output-hook
+~~~
 
-# Record verified facts (requires CLAUDE_SESSION_ID)
-export CLAUDE_SESSION_ID="session-$(date +%s)"
-fflearn observe \
-  --key test.command \
-  --value "pytest -q" \
-  --evidence "Exit code 0; all tests passed"
+The installer backs up and merges Claude settings instead of replacing unrelated settings. Review changes to the Claude settings file and hook scripts before enabling them, especially in sensitive repositories.
 
-# Retrieve confirmed facts
-fflearn recall
-```
+Useful commands:
 
----
+~~~bash
+fidelityflow ingest "docs/architecture.pdf"
+fidelityflow search --query "authentication flow" --top-k 5
+fidelityflow show --document DOCUMENT_ID --chunk 0
+fidelityflow doctor
+~~~
 
-**This README targets both non-technical users (via Claude.ai) and technical developers (via CLI).** Features are clearly labeled where they are fully functional versus limited by platform scope.
+The local engine supports text/code, Markdown, CSV/TSV, JSON/JSONL, YAML, XML/HTML, DOCX, XLSX, PPTX, and PDF (with the optional PDF dependency). Run the doctor command to see which extractors are available.
 
-### Release validation
+## A practical workflow that avoids unnecessary context
 
-Run `python build_release.py --check` to validate Skill references and create `dist/fidelityflow-claude-ai.zip`. Install the optional Claude Code hooks with `python install.py --scope user --enable-output-hook`. Use `--hook-only` to install hooks without copying the Skill.
+1. **Keep recurring source material in one Claude Project.** Add stable documents to Project Knowledge once rather than attaching the same library to every new chat.
+2. **Keep Project Instructions short.** Put task-specific guidance in Skills or reference documents.
+3. **Use a new chat for an unrelated task.** Do not carry a long history into a task that does not need it.
+4. **In Claude Code, inspect /context and /usage.** Use /clear for a new task and /compact when continuing the same task, preserving important decisions and unresolved questions.
+5. **Disable unused MCP servers and connectors.** Keep only the tools needed for the current task. Tool definitions and returned results can both contribute to context.
+6. **Prefer targeted reads.** Search for symbols, terms, or line ranges before reading a whole directory or large file.
+7. **Avoid repeated uploads and tool calls.** Reuse Project Knowledge, local indexes, and stable source references where appropriate.
+8. **Do not lower reasoning effort blindly.** Use lower effort for routine tasks, but retain sufficient effort for architecture, security, data, and other high-stakes work.
+
+These are user workflow recommendations, not actions FidelityFlow can silently enforce on Claude.ai.
+
+## Important platform and quality boundaries
+
+- A Claude.ai Skill cannot intercept Claude's internal initial attachment-upload/parser pipeline. It cannot guarantee that the first upload is free of context or usage cost.
+- Claude.ai Skill execution happens in a managed workspace. Do not assume its local cache survives unrelated chats, workspace resets, or future sessions.
+- Claude Code hooks can modify supported tool output before it is added to model context. Current hooks support only exact repeated large Read results and a narrow set of successful test-runner outputs.
+- A shorter excerpt is not automatically a valid optimization. If omitted information may affect the answer, retrieve the original or leave the content unchanged.
+- The output hook archives original stdout locally. This is not encryption. Avoid enabling it where local output retention is not acceptable.
+- FidelityFlow does not change Claude pricing, subscription limits, model choice, thinking budgets, or Anthropic's prompt-cache policy.
+- Subscription usage limits and API token billing are different. Do not convert a subscription usage indicator into a dollar-saving estimate.
+- No percentage-saving or "same quality" claim is made until representative baseline and optimized runs have been measured.
+
+## How savings should be measured
+
+Count all relevant costs, not just the length of filtered text:
+- Input tokens.
+- Cache-creation and cache-read input tokens.
+- Output tokens and thinking tokens, when exposed.
+- Extra tool calls, retries, and recovery reads.
+- Skill/Plugin instruction overhead.
+- Any model-assisted preprocessing.
+- Latency and task-quality results.
+
+For Claude Code, the usage utility reads fields present in a local JSONL transcript:
+
+~~~bash
+python benchmarks/read_claude_usage.py "/path/to/session.jsonl"
+~~~
+
+It does not estimate missing token counts and does not currently measure Claude.ai web-chat usage. A fair A/B test uses the same model, task, files, cache conditions, and quality rubric.
+
+See [the consumption strategy](docs/CONSUMPTION-STRATEGY.md), [architecture](docs/ARCHITECTURE.md), [file-processing limits](skills/fidelityflow/references/file-processing.md), and [platform setup](skills/fidelityflow/references/platform-setup.md).
+
+## Privacy
+
+- File indexes, caches, memory, and optional output archives are stored locally in the configured workspace or user directory.
+- Local caches and archives are not encrypted by FidelityFlow.
+- The project makes no network calls for local extraction, indexing, search, or hook transformation.
+- Redaction is best-effort, not a guarantee that every secret is detected.
+- Never index or archive sensitive material unless you understand where it will be stored and who can access that location.
+
+## License
+
+MIT. See [LICENSE](LICENSE).

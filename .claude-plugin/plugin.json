@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-plugin.json",
+  "name": "fidelityflow",
+  "displayName": "FidelityFlow",
+  "version": "0.3.1",
+  "description": "Conservative Claude context-usage optimization through local file indexing, bounded retrieval, and source-preserving workflows.",
+  "author": {
+    "name": "Muhammad Gamal Eid",
+    "url": "https://github.com/muhammadgamaleid"
+  },
+  "repository": "https://github.com/muhammadgamaleid/FidelityFlow",
+  "license": "MIT",
+  "keywords": [
+    "claude",
+    "context-efficiency",
+    "token-usage",
+    "file-processing",
+    "retrieval"
+  ],
+  "skills": [
+    "./skills/"
+  ]
+}
