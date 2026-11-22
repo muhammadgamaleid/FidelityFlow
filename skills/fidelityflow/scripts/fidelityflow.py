@@ -422,7 +422,7 @@ def parse_xlsx(path: Path) -> tuple[str, list[str]]:
 def _relationship_targets(archive: zipfile.ZipFile, rels_member: str) -> dict[str, str]:
     try:
         root = ET.fromstring(read_ooxml_xml_member(archive, rels_member))
-    except KeyError:
+    except (KeyError, ValueError):
         return {}
     output = {}
     base = rels_member.rsplit("/_rels/", 1)[0]

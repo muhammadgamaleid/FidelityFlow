@@ -255,6 +255,68 @@ class FidelityFlowCliTests(unittest.TestCase):
             self.assertIn("Revenue | 250", text)
             self.assertTrue(notes)
 
+    def test_docx_includes_headers_footnotes_and_revision_markers(self):
+        module = load_module(CLI, "fidelityflow_docx_extended_test")
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "extended.docx"
+            document = """<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body>
+              <w:p><w:r><w:t>Current text</w:t></w:r><w:ins><w:r><w:t>Inserted text</w:t></w:r></w:ins><w:del><w:r><w:delText>Deleted text</w:delText></w:r></w:del></w:p>
+            </w:body></w:document>"""
+            header = """<w:hdr xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:p><w:r><w:t>Header text</w:t></w:r></w:p></w:hdr>"""
+            footnotes = """<w:footnotes xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:footnote w:id="1"><w:p><w:r><w:t>Footnote detail</w:t></w:r></w:p></w:footnote></w:footnotes>"""
+            with zipfile.ZipFile(path, "w") as archive:
+                archive.writestr("word/document.xml", document)
+                archive.writestr("word/header1.xml", header)
+                archive.writestr("word/footnotes.xml", footnotes)
+            extracted, _ = module.extract_docx(path)
+            self.assertIn("Current text", extracted)
+            self.assertIn("[INSERTED: Inserted text]", extracted)
+            self.assertIn("[DELETED: Deleted text]", extracted)
+            self.assertIn("Header text", extracted)
+            self.assertIn("Footnote detail", extracted)
+
+    def test_xlsx_preserves_hidden_state_merged_ranges_and_chart_cache(self):
+        module = load_module(CLI, "fidelityflow_xlsx_extended_test")
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "extended.xlsx"
+            workbook = """<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets><sheet name="Summary" sheetId="1" state="hidden" r:id="rId1"/></sheets><definedNames><definedName name="Revenue_Total">Summary!$B$2</definedName></definedNames></workbook>"""
+            rels = """<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Target="worksheets/sheet1.xml"/></Relationships>"""
+            sheet = """<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><cols><col min="3" max="4" hidden="1"/></cols><sheetData><row r="1"><c r="A1" t="inlineStr"><is><t>Revenue</t></is></c></row><row r="2" hidden="1"><c r="B2"><f>SUM(B3:B4)</f><v>500</v></c></row></sheetData><mergeCells count="1"><mergeCell ref="A1:B1"/></mergeCells></worksheet>"""
+            chart = """<c:chartSpace xmlns:c="http://schemas.openxmlformats.org/drawingml/2006/chart"><c:chart><c:plotArea><c:barChart><c:ser><c:tx><c:v>Revenue</c:v></c:tx><c:cat><c:strRef><c:strCache><c:pt idx="0"><c:v>Q1</c:v></c:pt></c:strCache></c:strRef></c:cat><c:val><c:numRef><c:numCache><c:pt idx="0"><c:v>500</c:v></c:pt></c:numCache></c:numRef></c:val></c:ser></c:barChart></c:plotArea></c:chart></c:chartSpace>"""
+            with zipfile.ZipFile(path, "w") as archive:
+                archive.writestr("xl/workbook.xml", workbook)
+                archive.writestr("xl/_rels/workbook.xml.rels", rels)
+                archive.writestr("xl/worksheets/sheet1.xml", sheet)
+                archive.writestr("xl/charts/chart1.xml", chart)
+            extracted, _ = module.parse_xlsx(path)
+            self.assertIn("Sheet: Summary [SHEET STATE: hidden]", extracted)
+            self.assertIn("[HIDDEN COLUMNS: 3-4]", extracted)
+            self.assertIn("[HIDDEN ROW: 2]", extracted)
+            self.assertIn("[MERGED CELLS: A1:B1]", extracted)
+            self.assertIn("Revenue_Total = Summary!$B$2", extracted)
+            self.assertIn("Categories: Q1", extracted)
+            self.assertIn("Values: 500", extracted)
+
+    def test_pptx_includes_alt_text_speaker_notes_and_cached_chart_data(self):
+        module = load_module(CLI, "fidelityflow_pptx_extended_test")
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "extended.pptx"
+            slide = """<p:sld xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"><p:cSld><p:spTree><p:pic><p:nvPicPr><p:cNvPr id="2" name="Picture 1" descr="Quarterly sales chart"/></p:nvPicPr></p:pic><p:sp><p:txBody><a:p><a:r><a:t>Quarterly summary</a:t></a:r></a:p></p:txBody></p:sp></p:spTree></p:cSld></p:sld>"""
+            rels = """<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/notesSlide" Target="../notesSlides/notesSlide1.xml"/></Relationships>"""
+            speaker_notes = """<p:notes xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"><p:cSld><p:spTree><p:sp><p:txBody><a:p><a:r><a:t>Explain the revenue trend</a:t></a:r></a:p></p:txBody></p:sp></p:spTree></p:cSld></p:notes>"""
+            chart = """<c:chartSpace xmlns:c="http://schemas.openxmlformats.org/drawingml/2006/chart"><c:chart><c:plotArea><c:lineChart><c:ser><c:tx><c:v>Sales</c:v></c:tx><c:cat><c:strRef><c:strCache><c:pt idx="0"><c:v>Jan</c:v></c:pt></c:strCache></c:strRef></c:cat><c:val><c:numRef><c:numCache><c:pt idx="0"><c:v>250</c:v></c:pt></c:numCache></c:numRef></c:val></c:ser></c:lineChart></c:plotArea></c:chart></c:chartSpace>"""
+            with zipfile.ZipFile(path, "w") as archive:
+                archive.writestr("ppt/slides/slide1.xml", slide)
+                archive.writestr("ppt/slides/_rels/slide1.xml.rels", rels)
+                archive.writestr("ppt/notesSlides/notesSlide1.xml", speaker_notes)
+                archive.writestr("ppt/charts/chart1.xml", chart)
+            extracted, _ = module.parse_pptx(path)
+            self.assertIn("[IMAGE ALT TEXT: Quarterly sales chart]", extracted)
+            self.assertIn("Quarterly summary", extracted)
+            self.assertIn("Explain the revenue trend", extracted)
+            self.assertIn("Categories: Jan", extracted)
+            self.assertIn("Values: 250", extracted)
+
     def test_oversized_docx_xml_member_is_rejected_before_reading(self):
         module = load_module(CLI, "fidelityflow_docx_limit_test")
         with tempfile.TemporaryDirectory() as tmp:
