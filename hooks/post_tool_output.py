@@ -58,6 +58,19 @@ def read_dedup_min_chars() -> int:
 
 
 READ_DEDUP_MIN_CHARS = read_dedup_min_chars()
+
+
+def result_dedup_min_chars() -> int:
+    """Minimum size for exact duplicate plain-text tool-result suppression."""
+    try:
+        configured = int(os.environ.get("FIDELITYFLOW_RESULT_DEDUP_MIN_CHARS", "8000"))
+    except (TypeError, ValueError):
+        configured = 8000
+    return max(1000, configured)
+
+
+RESULT_DEDUP_MIN_CHARS = result_dedup_min_chars()
+TEXT_RESULT_TOOLS = {"Grep", "Glob", "WebSearch", "WebFetch", "NotebookRead"}
 SECRET = re.compile(
     r"(?i)(-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----|"
     r"\bsk-ant-[A-Za-z0-9_-]{12,}|\bgh[pousr]_[A-Za-z0-9]{20,}|"
@@ -389,6 +402,130 @@ def handle_read_dedup(event: dict) -> dict | None:
         return None
 
 
+
+def _plain_text_payload(response: object) -> tuple[str, str] | None:
+    """Return text plus payload kind only for safe, plain-text response shapes."""
+    if isinstance(response, str):
+        return response, "string"
+    if not isinstance(response, dict):
+        return None
+    if response.get("isError") is True:
+        return None
+    if set(response) - {"content", "isError"}:
+        return None
+    content = response.get("content")
+    if not isinstance(content, list) or not content:
+        return None
+    text_parts = []
+    for block in content:
+        if (
+            not isinstance(block, dict)
+            or set(block) - {"type", "text"}
+            or block.get("type") != "text"
+            or not isinstance(block.get("text"), str)
+        ):
+            return None
+        text_parts.append(block["text"])
+    return "\n".join(text_parts), "mcp-content"
+
+
+def _restore_payload_shape(response: object, note: str, payload_kind: str) -> object:
+    if payload_kind == "string":
+        return note
+    assert isinstance(response, dict)
+    updated = {"content": [{"type": "text", "text": note}]}
+    if "isError" in response:
+        updated["isError"] = False
+    return updated
+
+
+def handle_text_result_dedup(event: dict) -> dict | None:
+    """Suppress one exact repeated text result while preserving MCP result shape."""
+    tool_name = event.get("tool_name")
+    if not isinstance(tool_name, str):
+        return None
+    if tool_name not in TEXT_RESULT_TOOLS and not tool_name.startswith("mcp__"):
+        return None
+
+    parsed = _plain_text_payload(event.get("tool_response"))
+    if parsed is None:
+        return None
+    response_text, payload_kind = parsed
+    if (
+        len(response_text) < RESULT_DEDUP_MIN_CHARS
+        or unsafe_output(response_text)
+    ):
+        return None
+
+    tool_input = event.get("tool_input") or {}
+    session_dir = _session_read_dir(event)
+    if not isinstance(tool_input, dict) or session_dir is None:
+        return None
+    try:
+        input_bytes = json.dumps(
+            tool_input, sort_keys=True, ensure_ascii=False, separators=(",", ":")
+        ).encode("utf-8")
+    except (TypeError, ValueError, UnicodeError):
+        return None
+
+    request_identity = {
+        "tool_name": tool_name,
+        "tool_input_sha256": hashlib.sha256(input_bytes).hexdigest(),
+        "response_sha256": hashlib.sha256(response_text.encode("utf-8")).hexdigest(),
+        "payload_kind": payload_kind,
+    }
+    marker_name = hashlib.sha256(
+        json.dumps(
+            request_identity, sort_keys=True, ensure_ascii=False, separators=(",", ":")
+        ).encode("utf-8")
+    ).hexdigest() + ".seen"
+
+    try:
+        session_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
+        if session_dir.is_symlink():
+            return None
+        if os.name != "nt":
+            try:
+                session_dir.chmod(0o700)
+            except OSError:
+                pass
+        marker = session_dir / marker_name
+        if marker.is_symlink():
+            return None
+        try:
+            fd = os.open(str(marker), os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
+        except FileExistsError:
+            try:
+                state = marker.read_text(encoding="ascii").strip()
+            except (OSError, UnicodeError):
+                return None
+            if state == "fidelityflow-read-dedup-v2:seen":
+                if not _atomic_marker_state(marker, "suppressed"):
+                    return None
+                note = (
+                    f"FIDELITYFLOW: One exact duplicate {tool_name} result suppressed. "
+                    "The same tool input and byte-identical text result were already returned "
+                    "in this session's current context epoch. No summary or semantic rewrite "
+                    "was generated. The next identical request is passed through in full "
+                    "as a recovery safeguard."
+                )
+                updated = _restore_payload_shape(
+                    event.get("tool_response"), note, payload_kind
+                )
+                return {"hookSpecificOutput": {
+                    "hookEventName": "PostToolUse",
+                    "updatedToolOutput": updated,
+                }}
+            if state == "fidelityflow-read-dedup-v2:suppressed":
+                _atomic_marker_state(marker, "seen")
+                return None
+            return None
+        with os.fdopen(fd, "w", encoding="ascii") as stream:
+            stream.write("fidelityflow-read-dedup-v2:seen\n")
+        return None
+    except OSError:
+        return None
+
 def main() -> None:
     try:
         event = json.load(sys.stdin)
@@ -405,7 +542,15 @@ def main() -> None:
             if read_result is not None:
                 return emit(read_result)
             return fail_open()
-        if event.get("tool_name") != "Bash":
+        tool_name = event.get("tool_name")
+        if tool_name in TEXT_RESULT_TOOLS or (
+            isinstance(tool_name, str) and tool_name.startswith("mcp__")
+        ):
+            result = handle_text_result_dedup(event)
+            if result is not None:
+                return emit(result)
+            return fail_open()
+        if tool_name != "Bash":
             return fail_open()
         response = event.get("tool_response")
         tool_input = event.get("tool_input") or {}

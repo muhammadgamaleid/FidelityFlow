@@ -53,7 +53,27 @@ def merge_hook(settings: dict[str, Any], command: str,
     if not isinstance(hooks, dict):
         raise ValueError("settings hooks must be an object")
     before = json.dumps(merged, sort_keys=True)
-    _add_hook(hooks, "PostToolUse", "Read|Bash", command, 8)
+    expanded_matcher = "Read|Bash|Grep|Glob|WebSearch|WebFetch|NotebookRead|mcp__.*"
+    entries = hooks.setdefault("PostToolUse", [])
+    if not isinstance(entries, list):
+        raise ValueError("settings hooks.PostToolUse must be a list")
+    legacy = [
+        item for item in entries
+        if isinstance(item, dict)
+        and item.get("matcher") == "Read|Bash"
+        and isinstance(item.get("hooks"), list)
+        and any(isinstance(h, dict) and h.get("command") == command for h in item["hooks"])
+    ]
+    if legacy:
+        primary = legacy[0]
+        primary["matcher"] = expanded_matcher
+        merged_commands = primary.setdefault("hooks", [])
+        for duplicate in legacy[1:]:
+            for hook_item in duplicate.get("hooks", []):
+                if hook_item not in merged_commands:
+                    merged_commands.append(hook_item)
+            entries.remove(duplicate)
+    _add_hook(hooks, "PostToolUse", expanded_matcher, command, 8)
     _add_hook(hooks, "PreCompact", None, command)
     _add_hook(hooks, "SessionEnd", None, command)
     _add_hook(hooks, "SessionStart", "clear", command)

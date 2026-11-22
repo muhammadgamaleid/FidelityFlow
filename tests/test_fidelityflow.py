@@ -682,13 +682,37 @@ class InstallerTests(unittest.TestCase):
         self.assertTrue(changed)
         self.assertEqual(merged["model"], "sonnet")
         self.assertEqual(merged["hooks"]["PreToolUse"][0]["hooks"][0]["command"], "existing")
-        self.assertEqual(merged["hooks"]["PostToolUse"][0]["matcher"], "Read|Bash")
+        self.assertEqual(merged["hooks"]["PostToolUse"][0]["matcher"], "Read|Bash|Grep|Glob|WebSearch|WebFetch|NotebookRead|mcp__.*")
         self.assertIn("PreCompact", merged["hooks"])
         self.assertIn("SessionEnd", merged["hooks"])
         self.assertEqual(merged["hooks"]["SessionStart"][0]["matcher"], "clear")
         merged_again, changed_again = module.merge_hook(merged, "python hook.py")
         self.assertFalse(changed_again)
         self.assertEqual(merged_again, merged)
+
+    def test_upgrades_legacy_read_bash_matcher_without_registering_duplicate(self):
+        module = load_module(INSTALLER, "fidelityflow_installer_upgrade_test")
+        old_command = "python hook.py"
+        settings = {
+            "hooks": {
+                "PostToolUse": [{
+                    "matcher": "Read|Bash",
+                    "hooks": [{"type": "command", "command": old_command, "timeout": 8}],
+                }]
+            }
+        }
+        merged, changed = module.merge_hook(settings, old_command)
+        self.assertTrue(changed)
+        entries = merged["hooks"]["PostToolUse"]
+        fidelity_entries = [
+            item for item in entries
+            if any(h.get("command") == old_command for h in item.get("hooks", []))
+        ]
+        self.assertEqual(len(fidelity_entries), 1)
+        self.assertEqual(
+            fidelity_entries[0]["matcher"],
+            "Read|Bash|Grep|Glob|WebSearch|WebFetch|NotebookRead|mcp__.*",
+        )
 
     def test_settings_merge_refuses_malformed_hooks(self):
         module = load_module(INSTALLER, "fidelityflow_installer_invalid_test")
@@ -737,7 +761,7 @@ class InstallerTests(unittest.TestCase):
             settings = json.loads((base / "settings.json").read_text(encoding="utf-8"))
             command = settings["hooks"]["PostToolUse"][0]["hooks"][0]["command"]
             self.assertIn(str(hook_path), command)
-            self.assertEqual(settings["hooks"]["PostToolUse"][0]["matcher"], "Read|Bash")
+            self.assertEqual(settings["hooks"]["PostToolUse"][0]["matcher"], "Read|Bash|Grep|Glob|WebSearch|WebFetch|NotebookRead|mcp__.*")
             self.assertIn("PreCompact", settings["hooks"])
             self.assertIn("SessionEnd", settings["hooks"])
             self.assertEqual(settings["hooks"]["SessionStart"][0]["matcher"], "clear")
