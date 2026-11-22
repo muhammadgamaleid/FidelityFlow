@@ -366,6 +366,24 @@ class FidelityFlowHookTests(unittest.TestCase):
         self.assertEqual(proc.returncode, 0, proc.stderr)
         return json.loads(proc.stdout)
 
+    def run_precompact_hook(self, home: Path, *, custom_instructions: str | None = None):
+        event = {
+            "hook_event_name": "PreCompact",
+            "session_id": "session-1",
+            "cwd": str(home),
+            "trigger": "manual",
+        }
+        if custom_instructions is not None:
+            event["custom_instructions"] = custom_instructions
+        env = dict(os.environ)
+        env["HOME"] = str(home)
+        proc = subprocess.run(
+            [sys.executable, str(HOOK)], input=json.dumps(event),
+            capture_output=True, text=True, env=env, timeout=30,
+        )
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        return proc.stdout
+
     def run_read_hook(self, home: Path, *, event_name: str = "PostToolUse", session_id: str = "session-1",
                       agent_id: str = "main", file_path: str = "docs/source.md", offset=None, limit=None,
                       response: str = "source line\n" * 300):
@@ -391,7 +409,46 @@ class FidelityFlowHookTests(unittest.TestCase):
         env["FIDELITYFLOW_READ_DEDUP_MIN_CHARS"] = "1000"
         proc = subprocess.run([sys.executable, str(HOOK)], input=json.dumps(event), capture_output=True, text=True, env=env, timeout=30)
         self.assertEqual(proc.returncode, 0, proc.stderr)
-        return json.loads(proc.stdout)
+        return proc.stdout if event_name == "PreCompact" else json.loads(proc.stdout)
+
+    def test_precompact_returns_plain_language_preservation_instructions(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            output = self.run_precompact_hook(Path(tmp))
+            self.assertIn("FIDELITYFLOW — CONTEXT COMPACTION POLICY", output)
+            self.assertIn("current objective", output)
+            self.assertIn("failed tests", output)
+            self.assertIn("latest explicit user instruction", output)
+            self.assertIn("Open Work", output)
+            self.assertLess(len(output), 5000)
+            self.assertFalse(output.lstrip().startswith("{"))
+
+    def test_precompact_includes_user_instructions_and_safe_session_brief(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            folder = root / ".fidelityflow"
+            folder.mkdir()
+            (folder / "session-brief.md").write_text(
+                "# Project checkpoint\nCurrent goal: finish OCR tests.\nDo not publish yet.",
+                encoding="utf-8",
+            )
+            output = self.run_precompact_hook(
+                root, custom_instructions="Preserve the open API compatibility question."
+            )
+            self.assertIn("Preserve the open API compatibility question.", output)
+            self.assertIn("Current goal: finish OCR tests.", output)
+            self.assertIn("Do not publish yet.", output)
+            self.assertIn("newer explicit conversation statements take precedence", output)
+
+    def test_precompact_ignores_symlinked_session_brief(self):
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as outside:
+            root = Path(tmp)
+            folder = root / ".fidelityflow"
+            folder.mkdir()
+            secret = Path(outside) / "brief.md"
+            secret.write_text("EXTERNAL PRIVATE BRIEF SHOULD NOT BE READ", encoding="utf-8")
+            (folder / "session-brief.md").symlink_to(secret)
+            output = self.run_precompact_hook(root)
+            self.assertNotIn("EXTERNAL PRIVATE BRIEF SHOULD NOT BE READ", output)
 
     def test_exact_duplicate_large_read_is_suppressed_without_archiving_or_losing_first_copy(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -433,7 +490,8 @@ class FidelityFlowHookTests(unittest.TestCase):
             root = home / ".claude" / "fidelityflow" / "read-dedup"
             self.assertEqual(len(list(root.rglob("*.seen"))), 2)
             compact = self.run_read_hook(home, event_name="PreCompact", response="unused", agent_id="main")
-            self.assertEqual(compact, {})
+            self.assertIn("FIDELITYFLOW — CONTEXT COMPACTION POLICY", compact)
+            self.assertIn("Open Work", compact)
             self.assertFalse(any(root.rglob("*.seen")))
             # Both agents must pass a full result after the session context is compacted.
             self.assertEqual(self.run_read_hook(home, response=original, agent_id="main"), {})

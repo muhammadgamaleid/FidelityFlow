@@ -27,9 +27,11 @@ It is not a universal lossy compressor. Each transformation is restricted to a k
                                           |
                         +-----------------+-----------------+
                         |                                   |
-                 Exact Read dedup                  Test-output compaction
+           Exact duplicate text-result filtering       Test-output compaction
                         |                                   |
                 Hash-only markers                  Local stdout archive
+                        |
+                 PreCompact handoff guidance
                         |
                    SQLite project memory (separate feature)
 ~~~
@@ -85,7 +87,7 @@ The read_claude_usage.py utility reads usage fields exposed in Claude Code JSONL
 
 - The CLI and optional hooks run locally.
 - Hooks can transform supported tool output before it becomes model-visible.
-- Current hooks do not implement generic MCP, web, shell, or conversation-history compaction.
+- Hooks do not generically summarize or compress arbitrary MCP, web, shell, or tool responses. PreCompact guides Claude's built-in summary; it does not rewrite conversation history or avoid the compaction operation itself.
 - Local archives and caches are unencrypted and must be protected by the user.
 
 ## Design invariants
@@ -105,7 +107,7 @@ The read_claude_usage.py utility reads usage fields exposed in Claude Code JSONL
 - More complete document extraction and source maps.
 - Schema-aware MCP and tool-result adapters.
 - Better code structure and retrieval.
-- Session/context evaluation for Claude Code's supported compaction features.
+- Broader context lifecycle evaluation and quality benchmarks for Claude Code compaction.
 - Reproducible task-quality and cost benchmarks.
 - User-facing usage diagnostics and practical Claude setup guidance.
 

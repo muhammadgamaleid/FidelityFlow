@@ -103,6 +103,19 @@ fidelityflow doctor
 
 For PDF extraction, install the `pdf` extra as shown above.
 
+### Optional local OCR for images and scanned PDFs
+
+OCR is available in the local CLI only. Install the Python extra, then install the Tesseract executable and the language data you need:
+
+```bash
+python -m pip install -e ".[ocr]"
+fidelityflow doctor
+fidelityflow ingest "scanned-report.pdf" --ocr --ocr-lang ara+eng
+fidelityflow ingest "screenshot.png" --ocr --ocr-lang ara+eng
+```
+
+OCR is opt-in, processes only sparse-text PDF pages by default, and respects DPI/page limits. Claude.ai's managed Skill workspace does not guarantee Tesseract or its language packs, so this workflow is not promised in web chat. OCR extracts text; it does not interpret charts or diagrams.
+
 ## What works today
 
 | Capability | Claude.ai Skill | Claude Code |
@@ -114,7 +127,7 @@ For PDF extraction, install the `pdf` extra as shown above.
 | Narrow successful test-output compaction | — | Optional hook |
 | Evidence-backed project memory | — | Local SQLite |
 
-**Not implemented yet:** broad MCP/web/tool-result optimization, generic conversation-history rewriting, visual image understanding beyond OCR, audio/video processing, and independently validated end-to-end token savings.
+**Not implemented yet:** general schema-aware MCP/web-result reduction, semantic code retrieval, visual image understanding beyond OCR, audio/video processing, and independently validated end-to-end savings across representative tasks.
 
 Search is lexical, not semantic. Office extraction is text-oriented and does not fully reconstruct visual layout, charts, embedded objects, or spreadsheet calculation behavior.
 

@@ -61,7 +61,7 @@ To install optional hooks:
 python install.py --scope user --enable-output-hook
 ~~~
 
-Review the Claude settings file after installation. The installer backs up existing settings and merges its registrations, but users should still inspect hook commands and local archive paths. The current hooks are opt-in and intentionally narrow.
+Review the Claude settings file after installation. The installer backs up existing settings and merges its registrations, but users should still inspect hook commands and local archive paths. The current hooks are opt-in and intentionally narrow. The PostToolUse matcher covers Read, Bash, selected text-result tools, and MCP tool names; PreCompact adds a concise preservation policy to Claude's existing compaction summary. You can maintain an optional `.fidelityflow/session-brief.md` from the template at `docs/SESSION-BRIEF-TEMPLATE.md`.
 
 ## Optional local OCR for Claude Code
 

@@ -295,6 +295,91 @@ def clear_session_reads(event: dict) -> None:
     shutil.rmtree(session_root)
 
 
+
+MAX_COMPACTION_INSTRUCTIONS = 10000
+MAX_SESSION_BRIEF_CHARS = 4500
+MAX_CUSTOM_COMPACTION_CHARS = 1500
+
+
+def _safe_session_brief(event: dict) -> str:
+    """Read an explicitly user-maintained brief from the current project only."""
+    cwd_value = event.get("cwd")
+    if not isinstance(cwd_value, str) or not cwd_value.strip():
+        return ""
+    try:
+        cwd = Path(cwd_value).expanduser().resolve()
+        fidelity_dir = cwd / ".fidelityflow"
+        brief_path = fidelity_dir / "session-brief.md"
+        if (
+            fidelity_dir.is_symlink()
+            or not fidelity_dir.is_dir()
+            or brief_path.is_symlink()
+            or not brief_path.is_file()
+        ):
+            return ""
+        if brief_path.stat().st_size > MAX_SESSION_BRIEF_CHARS * 4:
+            return ""
+        content = brief_path.read_text(encoding="utf-8")
+    except (OSError, UnicodeError, RuntimeError):
+        return ""
+    content = "".join(
+        char for char in content
+        if char in "\n\r\t" or ord(char) >= 32
+    ).strip()
+    if len(content) > MAX_SESSION_BRIEF_CHARS:
+        content = content[:MAX_SESSION_BRIEF_CHARS].rstrip() + "\n[SESSION BRIEF TRUNCATED]"
+    return content
+
+
+def build_precompact_instructions(event: dict) -> str:
+    """Return compact, quality-preserving instructions for Claude Code compaction."""
+    lines = [
+        "FIDELITYFLOW — CONTEXT COMPACTION POLICY",
+        "",
+        "Create a concise, accurate handoff for the next assistant turn. Optimize for task continuity, not for preserving the transcript.",
+        "",
+        "PRESERVE, IN THIS ORDER:",
+        "1. The user's current objective and explicit success criteria.",
+        "2. Hard constraints, scope boundaries, preferences, and decisions the user explicitly made.",
+        "3. Verified project facts, architecture choices, important assumptions, and unresolved contradictions.",
+        "4. Exact file paths, symbols, identifiers, API names, versions, numeric values, URLs, commands, and error text needed to continue.",
+        "5. Files changed, changes made, tests actually run, exact outcomes, and any failures not yet fixed.",
+        "6. Remaining work, blockers, and the next concrete action.",
+        "",
+        "OMIT:",
+        "- Repeated tool output, duplicated file contents, routine progress chatter, and irrelevant earlier tasks.",
+        "- Suggestions that the user did not approve; keep suggestions separate from decisions.",
+        "- Details already represented accurately by a current verified project file or the user-maintained brief, unless a path or reason is needed.",
+        "",
+        "ACCURACY RULES:",
+        "- Do not invent missing facts, test results, approvals, or completion claims.",
+        "- Distinguish verified facts from assumptions and unresolved questions.",
+        "- Prefer the latest explicit user instruction when earlier discussion conflicts.",
+        "- Preserve warnings, failed tests, security concerns, and important limitations; never compress them into a false success.",
+        "- Keep source references so omitted detail can be retrieved when necessary.",
+        "",
+        "Use compact headings: Goal, Constraints, Decisions, Current State, Verification, Open Work. Keep the handoff as short as possible without losing any item required to continue safely.",
+    ]
+    custom = event.get("custom_instructions")
+    if isinstance(custom, str) and custom.strip():
+        custom = custom.strip()[:MAX_CUSTOM_COMPACTION_CHARS]
+        lines.extend(["", "USER-SUPPLIED COMPACTION INSTRUCTIONS (also follow):", custom])
+    brief = _safe_session_brief(event)
+    if brief:
+        lines.extend([
+            "",
+            "USER-MAINTAINED PROJECT SESSION BRIEF (reference only; newer explicit conversation statements take precedence):",
+            brief,
+        ])
+    output = "\n".join(lines).strip()
+    return output[:MAX_COMPACTION_INSTRUCTIONS]
+
+
+def emit_precompact_instructions(event: dict) -> None:
+    """Write plain text to stdout; Claude Code uses it as compaction guidance."""
+    clear_session_reads(event)
+    sys.stdout.write(build_precompact_instructions(event))
+
 def _atomic_marker_state(marker: Path, state: str) -> bool:
     """Atomically replace a fixed marker state; never store source content."""
     if state not in {"seen", "suppressed"} or marker.is_symlink():
@@ -530,7 +615,9 @@ def main() -> None:
     try:
         event = json.load(sys.stdin)
         event_name = event.get("hook_event_name")
-        if event_name in {"PreCompact", "SessionEnd"} or (
+        if event_name == "PreCompact":
+            return emit_precompact_instructions(event)
+        if event_name == "SessionEnd" or (
             event_name == "SessionStart" and event.get("source") == "clear"
         ):
             clear_session_reads(event)

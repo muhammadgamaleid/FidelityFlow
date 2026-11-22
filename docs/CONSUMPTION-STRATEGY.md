@@ -33,12 +33,14 @@ Never claim that a Skill makes a first-time attachment upload free or reduces a 
 
 Claude Code allows more direct optimization through local CLI tools and supported hooks. The current implementation can:
 - Suppress one byte-identical repeated large Read result, then permit a full recovery read.
+- Suppress one exact repeated plain-text Grep, Glob, WebSearch, WebFetch, NotebookRead, or standard text-only MCP result when the tool input and output hash both match.
+- Guide Claude Code's existing PreCompact summary to preserve goals, decisions, verified state, tests, and open work.
 - Compact a narrow set of completed successful test-runner outputs.
 - Archive original stdout locally before applying output compaction.
 - Store evidence-backed project facts in local SQLite.
 - Read token usage fields from local JSONL transcripts when present.
 
-These hooks are deliberately narrow. General MCP, web search, database, arbitrary Bash, and conversation-history filtering are not implemented.
+These hooks are deliberately narrow. General schema-aware MCP/web result projection, arbitrary Bash rewriting, and direct conversation-history filtering are not implemented. Exact text-result dedup is not generic response compression.
 
 ## Current implementation versus planned work
 
@@ -47,8 +49,8 @@ These hooks are deliberately narrow. General MCP, web search, database, arbitrar
 | File extraction | Text, Office XML-derived content, PDF text | Stronger per-format extraction and source maps |
 | File retrieval | Local cache and lexical chunk search | Better ranking, metadata filters, structural retrieval |
 | Images and scans | Opt-in local Tesseract OCR for images and sparse-text PDF pages; no visual reasoning | Image-region analysis, layout understanding, OCR quality scoring, and source-region maps |
-| Conversation history | No direct rewrite in Claude.ai; no full Claude Code history compressor | Platform-safe session/context analysis and measured compaction guidance |
-| Tool output | Exact repeated Read and limited successful tests only | Parsers for known tool families and MCP contracts |
+| Conversation history | No direct rewrite; Claude Code PreCompact guidance steers the existing summary | Evaluate compaction quality and optional structured session checkpoints |
+| Tool output | Exact duplicate Read and eligible text-only search/MCP results; limited successful tests | Schema-aware adapters and safe result projection for known tool contracts |
 | MCP definitions/results | No general optimizer | Tool discovery hygiene, schema budgeting, result projection |
 | Output generation | No output rewriting or global length cap | Generation guidance only where task requirements allow |
 | Usage measurement | Claude Code JSONL fields when available | Reproducible A/B benchmark; transparent cost accounting |
@@ -94,10 +96,15 @@ Any unknown, lossy, ambiguous, or unrecoverable transformation must fail open.
 ### P3 — Text, code, and session context
 - Improve structural code retrieval and duplicate-read detection.
 - Add parsers for high-volume log/search/test result formats.
-- Evaluate conversation compaction strategies within Claude Code's supported mechanisms.
+- Evaluate conversation compaction strategies within Claude Code's supported mechanisms, with PreCompact policy and optional user-maintained session briefs.
 - Avoid summarizing history Claude has already compacted unless the saved representation is demonstrably useful.
 
-### P4 — User guidance and reporting
+### P4 — Session continuity and user guidance
+- Use PreCompact stdout guidance without adding another model call.
+- Support an optional, user-maintained per-project session brief with clear precedence and size/privacy limits.
+- Provide usage diagnostics and practical Claude setup recommendations.
+
+### P5 — Benchmark suite and reporting
 - Provide a setup diagnostic for unnecessary Skills, MCP servers, and overly broad project instructions.
 - Offer usage reports only from actual platform telemetry.
 - Show what changed, why it was safe, what was omitted, and how to recover it.

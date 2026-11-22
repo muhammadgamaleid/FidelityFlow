@@ -63,11 +63,13 @@ For recurring reference libraries, prefer Claude Projects and Project Knowledge 
 
 ## Claude Code boundary
 
-The optional hooks are installed separately with the project installer. In the current release they handle only:
+The optional hooks are installed separately with the project installer. In the current release they handle:
 - Large, byte-identical repeated Read results within a session/agent context epoch.
+- Exact duplicate plain-text results from Grep, Glob, WebSearch, WebFetch, NotebookRead, and standard text-only MCP results when both tool input and output match.
 - Narrowly recognized, completed, successful test-runner output.
+- PreCompact guidance for the existing Claude Code summary, optionally informed by `.fidelityflow/session-brief.md`.
 
-They do not generically compress Bash, MCP, web-search, database, or arbitrary tool results. Unknown, failed, structured, diff-like, secret-like, or ambiguous output should remain unchanged. Do not claim that hooks are active unless the user installed and verified them.
+They do not generically summarize or compress arbitrary MCP, web, database, or Bash output, and they do not rewrite conversation history. Unknown, failed, structured, image-bearing, secret-like, or ambiguous output remains unchanged. Do not claim that hooks are active unless the user installed and verified them.
 
 ## Output and quality policy
 

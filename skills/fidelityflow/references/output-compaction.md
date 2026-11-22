@@ -52,6 +52,28 @@ All of these conditions must hold:
 
 Any uncertainty or exception fails open.
 
+
+## D. Context-preserving compaction guidance
+
+When Claude Code fires `PreCompact`, FidelityFlow clears result-dedup markers for the current session and writes a short plain-text preservation policy to hook stdout. Claude Code uses successful `PreCompact` stdout as additional instructions for its existing compaction summary. FidelityFlow does not call a second model, read or rewrite the whole transcript, or claim to remove context before the compaction operation.
+
+The policy asks the existing compaction process to preserve, in priority order:
+- The user's current objective, success criteria, and hard constraints.
+- User-approved decisions, verified project facts, and unresolved contradictions.
+- Exact file paths, symbols, identifiers, commands, versions, values, and error strings needed to continue.
+- Changes made, tests actually run, exact outcomes, and unresolved failures.
+- Open tasks, blockers, and the next useful action.
+
+It tells compaction to omit repeated tool output and irrelevant chatter, while never turning suggestions into decisions or failed tests into successes. Its output is bounded to 10,000 characters, matching Claude Code's documented hook guidance limit.
+
+### Optional project session brief
+
+A user may maintain `.fidelityflow/session-brief.md` in the project root. If the file exists and is a regular non-symlink file, the hook includes up to 4,500 characters as a reference when compacting. Newer explicit conversation statements take precedence over this brief. The file is never created or edited automatically; do not put secrets in it. This can hold stable project goals, architectural decisions, constraints, and current state that should survive context compaction.
+
+A template is provided at `docs/SESSION-BRIEF-TEMPLATE.md`. The hook also preserves any custom instructions supplied with the PreCompact event.
+
+**Cost boundary:** PreCompact guidance influences the summary Claude already generates; it does not avoid the current compaction call, remove earlier billed input, or guarantee a token percentage saving. Its purpose is to keep the compacted handoff useful so less source context needs to be re-read later.
+
 ## Recovery
 
 For Bash compaction, the exact UTF-8 stdout received in the hook event is stored verbatim at .fidelityflow/archive/<ref>.txt; metadata includes a SHA-256 digest. On POSIX systems the hook attempts owner-only permissions (0700 directory and 0600 files); on Windows it relies on inherited filesystem ACLs. This is not encryption.
