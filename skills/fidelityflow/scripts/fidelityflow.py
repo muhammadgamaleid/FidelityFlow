@@ -24,7 +24,7 @@ import xml.etree.ElementTree as ET
 from datetime import datetime, timezone
 from collections import Counter
 
-VERSION = "0.1.0"  # Initial public release; bump when extractor/cache semantics change.
+VERSION = "0.2.0"  # Extractor/cache semantics changed: Office metadata and optional OCR.
 DEFAULT_CACHE = Path.cwd() / ".fidelityflow" / "cache"
 DEFAULT_ARCHIVE = Path.cwd() / ".fidelityflow" / "archive"
 CHUNK_CHARS = 7000
@@ -551,65 +551,154 @@ def parse_pptx(path: Path) -> tuple[str, list[str]]:
         notes.append("No standard slide XML files were found.")
     return "\n".join(output).rstrip(), notes
 
-def parse_pdf(path: Path) -> tuple[str, list[str]]:
+def _load_ocr_engine():
+    try:
+        from . import ocr_engine
+        return ocr_engine
+    except ImportError:
+        try:
+            import ocr_engine  # type: ignore
+            return ocr_engine
+        except ImportError as exc:
+            raise RuntimeError(
+                "OCR engine module is missing from this FidelityFlow installation."
+            ) from exc
+
+
+def parse_pdf(
+    path: Path,
+    ocr: bool = False,
+    ocr_lang: str = "eng",
+    ocr_dpi: int = 180,
+    ocr_max_pages: int = 100,
+) -> tuple[str, list[str]]:
     try:
         from pypdf import PdfReader  # type: ignore
     except ImportError as exc:
-        raise RuntimeError("PDF extraction requires optional dependency pypdf. Install with: python -m pip install pypdf. Claude.ai users should use Claude's native PDF handling if the sandbox does not expose this dependency.") from exc
+        raise RuntimeError(
+            "PDF extraction requires optional dependency pypdf. "
+            "Install with: python -m pip install -e ".[pdf]"."
+        ) from exc
     reader = PdfReader(str(path))
-    pages = []
-    for index, page in enumerate(reader.pages, start=1):
-        text = page.extract_text() or ""
-        pages.append(f"[PAGE {index}]\n{text}")
-    notes = ["PDF text extraction preserves page markers but may lose visual layout, columns, charts, scanned text, and complex table geometry."]
-    if not any(p.strip().split("\n", 1)[-1].strip() for p in pages):
-        notes.append("No extractable text was found. The PDF may be scanned or image-only; use OCR or inspect the original visually.")
+    extracted_pages = [(page.extract_text() or "") for page in reader.pages]
+    notes = [
+        "PDF text extraction preserves page markers but may lose visual layout, columns, charts, scanned text, and complex table geometry."
+    ]
+    sparse_indices = [
+        index for index, text in enumerate(extracted_pages)
+        if len(text.strip()) < 40
+    ]
+    if ocr and sparse_indices:
+        engine = _load_ocr_engine()
+        recognized, ocr_notes = engine.extract_pdf_pages(
+            path, sparse_indices, dpi=ocr_dpi, language=ocr_lang,
+            max_pages=ocr_max_pages,
+        )
+        notes.extend(ocr_notes)
+        for index, text in recognized.items():
+            if text:
+                extracted_pages[index] = "\n".join(
+                    part for part in (extracted_pages[index].strip(), text) if part
+                )
+                notes.append(f"Page {index + 1} received OCR because its extracted text was sparse.")
+        if len(sparse_indices) > ocr_max_pages:
+            notes.append(
+                f"OCR page limit reached ({ocr_max_pages}); {len(sparse_indices) - ocr_max_pages} additional sparse pages were not processed."
+            )
+    elif ocr:
+        notes.append("OCR was enabled, but no pages met the sparse-text threshold.")
+    if not any(text.strip() for text in extracted_pages):
+        notes.append(
+            "No extractable text was found. The PDF may be scanned or image-only; enable --ocr and install the OCR extra plus Tesseract."
+        )
+    pages = [
+        f"[PAGE {index + 1}]\n{text}"
+        for index, text in enumerate(extracted_pages)
+    ]
     return "\n\n".join(pages), notes
 
+def expected_extractor(path: Path, ocr: bool = False) -> str | None:
 
-def expected_extractor(path: Path) -> str | None:
+def expected_extractor(path: Path, ocr: bool = False) -> str | None:
     suffix = normalized_suffix(path)
+    image_suffixes = {".png", ".jpg", ".jpeg", ".tif", ".tiff", ".bmp", ".webp"}
+    if suffix in image_suffixes:
+        return "image-ocr-tesseract-v1" if ocr else None
     if suffix == ".docx":
-        return "docx-stdlib-v1"
+        return "docx-stdlib-v2"
     if suffix == ".xlsx":
-        return "xlsx-stdlib-v1"
+        return "xlsx-stdlib-v2"
     if suffix == ".pptx":
-        return "pptx-stdlib-v1"
+        return "pptx-stdlib-v2"
     if suffix == ".pdf":
-        return "pdf-pypdf-v1"
-    text_suffixes = {".txt", ".md", ".markdown", ".rst", ".log", ".csv", ".tsv", ".json", ".jsonl", ".yaml", ".yml", ".xml", ".html", ".htm", ".py", ".js", ".ts", ".tsx", ".jsx", ".java", ".go", ".rs", ".c", ".h", ".cpp", ".cs", ".sql", ".sh", ".ps1", ".toml", ".ini", ".cfg", ".properties", ".diff", ".patch", ".env.example"}
+        return "pdf-pypdf-ocr-v1" if ocr else "pdf-pypdf-v1"
+    text_suffixes = {
+        ".txt", ".md", ".markdown", ".rst", ".log", ".csv", ".tsv",
+        ".json", ".jsonl", ".yaml", ".yml", ".xml", ".html", ".htm",
+        ".py", ".js", ".ts", ".tsx", ".jsx", ".java", ".go", ".rs",
+        ".c", ".h", ".cpp", ".cs", ".sql", ".sh", ".ps1", ".toml",
+        ".ini", ".cfg", ".properties", ".diff", ".patch", ".env.example",
+    }
     if suffix in text_suffixes or not suffix:
         return "text-utf8-v1"
     return None
 
+def extract_file(path: Path, ocr: bool = False, ocr_lang: str = "eng", ocr_dpi: int = 180, ocr_max_pages: int = 100) -> tuple[str, list[str], str]:
 
-def extract_file(path: Path) -> tuple[str, list[str], str]:
+def extract_file(
+    path: Path,
+    ocr: bool = False,
+    ocr_lang: str = "eng",
+    ocr_dpi: int = 180,
+    ocr_max_pages: int = 100,
+) -> tuple[str, list[str], str]:
     suffix = normalized_suffix(path)
+    image_suffixes = {".png", ".jpg", ".jpeg", ".tif", ".tiff", ".bmp", ".webp"}
+    if suffix in image_suffixes:
+        if not ocr:
+            raise RuntimeError("Image files require explicit --ocr and the optional OCR dependencies.")
+        engine = _load_ocr_engine()
+        text, notes = engine.extract_image(path, language=ocr_lang)
+        return text, notes, "image-ocr-tesseract-v1"
     if suffix == ".docx":
         text, notes = extract_docx(path)
-        return text, notes, "docx-stdlib-v1"
+        return text, notes, "docx-stdlib-v2"
     if suffix == ".xlsx":
         text, notes = parse_xlsx(path)
-        return text, notes, "xlsx-stdlib-v1"
+        return text, notes, "xlsx-stdlib-v2"
     if suffix == ".pptx":
         text, notes = parse_pptx(path)
-        return text, notes, "pptx-stdlib-v1"
+        return text, notes, "pptx-stdlib-v2"
     if suffix == ".pdf":
-        text, notes = parse_pdf(path)
-        return text, notes, "pdf-pypdf-v1"
+        text, notes = parse_pdf(path, ocr, ocr_lang, ocr_dpi, ocr_max_pages)
+        return text, notes, "pdf-pypdf-ocr-v1" if ocr else "pdf-pypdf-v1"
     if suffix in {".doc", ".xls", ".ppt"}:
-        raise RuntimeError(f"Legacy Office format {suffix} is not supported. Save as DOCX, XLSX, or PPTX first, or use Claude's native file handling.")
-    if suffix in {".txt", ".md", ".markdown", ".rst", ".log", ".csv", ".tsv", ".json", ".jsonl", ".yaml", ".yml", ".xml", ".html", ".htm", ".py", ".js", ".ts", ".tsx", ".jsx", ".java", ".go", ".rs", ".c", ".h", ".cpp", ".cs", ".sql", ".sh", ".ps1", ".toml", ".ini", ".cfg", ".properties", ".diff", ".patch", ".env.example"} or not suffix:
+        raise RuntimeError(
+            f"Legacy Office format {suffix} is not supported. Save as DOCX, XLSX, or PPTX first, or use Claude's native file handling."
+        )
+    text_suffixes = {
+        ".txt", ".md", ".markdown", ".rst", ".log", ".csv", ".tsv",
+        ".json", ".jsonl", ".yaml", ".yml", ".xml", ".html", ".htm",
+        ".py", ".js", ".ts", ".tsx", ".jsx", ".java", ".go", ".rs",
+        ".c", ".h", ".cpp", ".cs", ".sql", ".sh", ".ps1", ".toml",
+        ".ini", ".cfg", ".properties", ".diff", ".patch", ".env.example",
+    }
+    if suffix in text_suffixes or not suffix:
         raw = path.read_bytes()
         try:
             text = raw.decode("utf-8-sig")
             notes = []
         except UnicodeDecodeError:
             text = raw.decode("utf-8", errors="replace")
-            notes = ["Some bytes were not valid UTF-8 and were replaced during text extraction. The original file remains authoritative."]
+            notes = [
+                "Some bytes were not valid UTF-8 and were replaced during text extraction. The original file remains authoritative."
+            ]
         return text, notes, "text-utf8-v1"
-    raise RuntimeError(f"Unsupported file type: {suffix or '[no extension]'}. Keep the original and use Claude's native file handling or convert explicitly.")
+    raise RuntimeError(
+        f"Unsupported file type: {suffix or '[no extension]'}. Keep the original and use Claude's native file handling or convert explicitly."
+    )
 
+def split_chunks(text: str, max_chars: int = CHUNK_CHARS) -> list[dict]:
 
 def split_chunks(text: str, max_chars: int = CHUNK_CHARS) -> list[dict]:
     """Split without dropping characters; chunk text concatenation equals input."""
