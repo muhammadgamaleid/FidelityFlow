@@ -163,28 +163,36 @@ def extract_docx(path: Path) -> tuple[str, list[str]]:
 
     def append_part(title: str, root: ET.Element) -> None:
         part_lines: list[str] = []
-        for child in list(root):
-            kind = local_name(child.tag)
-            if kind == "p":
-                text = docx_xml_text(child).strip()
-                if not text:
-                    continue
-                style = next((
-                    node.attrib.get(
-                        "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}val"
-                    )
-                    for node in child.iter() if local_name(node.tag) == "pStyle"
-                ), "")
-                if style and style.lower().startswith("heading"):
-                    level_match = re.search(r"(\d+)", style)
-                    level = min(int(level_match.group(1)), 6) if level_match else 2
-                    part_lines.append("#" * level + " " + text)
+
+        def visit(container: ET.Element) -> None:
+            for child in list(container):
+                kind = local_name(child.tag)
+                if kind == "p":
+                    text = docx_xml_text(child).strip()
+                    if not text:
+                        continue
+                    style = next((
+                        node.attrib.get(
+                            "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}val"
+                        )
+                        for node in child.iter() if local_name(node.tag) == "pStyle"
+                    ), "")
+                    if style and style.lower().startswith("heading"):
+                        level_match = re.search(r"(\d+)", style)
+                        level = min(int(level_match.group(1)), 6) if level_match else 2
+                        part_lines.append("#" * level + " " + text)
+                    else:
+                        part_lines.append(text)
+                elif kind == "tbl":
+                    rows = _docx_table_text(child)
+                    if rows:
+                        part_lines.extend(["[TABLE]", *rows, "[/TABLE]"])
                 else:
-                    part_lines.append(text)
-            elif kind == "tbl":
-                rows = _docx_table_text(child)
-                if rows:
-                    part_lines.extend(["[TABLE]", *rows, "[/TABLE]"])
+                    # Notes and comments are nested below note/comment records,
+                    # unlike the direct paragraph children in word/document.xml.
+                    visit(child)
+
+        visit(root)
         if part_lines:
             output.append(f"## {title}")
             output.extend(part_lines)
@@ -216,7 +224,6 @@ def extract_docx(path: Path) -> tuple[str, list[str]]:
                 append_part(label, root)
 
     return "\n\n".join(output).rstrip(), notes
-
 def _chart_cache_values(parent: ET.Element | None) -> list[str]:
     if parent is None:
         return []
@@ -1226,7 +1233,8 @@ def main(argv: list[str] | None = None) -> int:
         parser.error("--ocr-dpi must be between 100 and 300")
     if getattr(args, "ocr_max_pages", DEFAULT_OCR_MAX_PAGES) < 1 or getattr(args, "ocr_max_pages", DEFAULT_OCR_MAX_PAGES) > 500:
         parser.error("--ocr-max-pages must be between 1 and 500")
-    if getattr(args, "ocr_lang", "eng") and not re.fullmatch(r"[A-Za-z0-9_+.-]+", args.ocr_lang):
+    ocr_lang = getattr(args, "ocr_lang", "eng")
+    if ocr_lang and not re.fullmatch(r"[A-Za-z0-9_+.-]+", ocr_lang):
         parser.error("--ocr-lang must contain only language codes separated by +")
     return args.func(args)
 

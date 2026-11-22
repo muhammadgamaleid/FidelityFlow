@@ -233,7 +233,7 @@ class FidelityFlowCliTests(unittest.TestCase):
             text, notes = module.parse_xlsx(path)
             self.assertIn("Sheet: Summary", text)
             self.assertIn("A1=Revenue", text)
-            self.assertIn("B1 formula=(SUM(B2:B3)) value=(250)", text)
+            self.assertIn("B1 formula=(SUM(B2:B3)) cached_value=(250)", text)
 
     def test_pptx_extraction_preserves_slide_and_table_text(self):
         module = load_module(CLI, "fidelityflow_pptx_test")
