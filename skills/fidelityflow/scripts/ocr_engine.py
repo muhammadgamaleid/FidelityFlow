@@ -24,7 +24,7 @@ def _dependencies():
     except ImportError as exc:
         raise RuntimeError(
             "Install FidelityFlow's OCR Python dependencies with "
-            "python -m pip install -e ".[ocr]"."
+            'python -m pip install -e ".[ocr]".'
         ) from exc
     return pytesseract, Image, ImageOps
 
