@@ -13,6 +13,7 @@ import io
 import json
 import math
 import os
+import posixpath
 from pathlib import Path
 import re
 import sys
@@ -112,166 +113,443 @@ def xml_text(element: ET.Element) -> str:
     return "".join(parts)
 
 
+def docx_xml_text(element: ET.Element) -> str:
+    """Preserve inserted/deleted revision text with explicit markers."""
+    def visit(node: ET.Element) -> str:
+        name = local_name(node.tag)
+        if name in {"ins", "del"}:
+            inner = "".join(visit(child) for child in list(node))
+            label = "INSERTED" if name == "ins" else "DELETED"
+            return f"[{label}: {inner}]" if inner else ""
+        if name in {"t", "delText"}:
+            return node.text or ""
+        if name == "tab":
+            return "\t"
+        if name in {"br", "cr"}:
+            return "\n"
+        return "".join(visit(child) for child in list(node))
+    return visit(element)
+
+
+def _docx_table_text(table: ET.Element) -> list[str]:
+    rows = []
+    for row in table.iter():
+        if local_name(row.tag) != "tr":
+            continue
+        cells = []
+        for cell in list(row):
+            if local_name(cell.tag) == "tc":
+                paragraphs = [
+                    docx_xml_text(paragraph).strip()
+                    for paragraph in cell.iter()
+                    if local_name(paragraph.tag) == "p"
+                ]
+                cells.append(" / ".join(value for value in paragraphs if value))
+        if any(cells):
+            rows.append(" | ".join(cells))
+    return rows
+
+
 def extract_docx(path: Path) -> tuple[str, list[str]]:
-    notes = ["DOCX extraction preserves paragraph and table text, not pagination or exact visual layout."]
-    with zipfile.ZipFile(path) as archive:
-        validate_ooxml_archive(archive)
-        xml = ET.fromstring(read_ooxml_xml_member(archive, "word/document.xml"))
-    body = next((x for x in xml.iter() if local_name(x.tag) == "body"), None)
-    if body is None:
-        raise ValueError("DOCX has no document body")
+    notes = [
+        "DOCX extraction preserves paragraph order, heading styles, table text, tracked insertions/deletions, headers, footers, footnotes, endnotes, and comments.",
+        "Pagination, floating-object geometry, embedded media, and exact visual layout are not reproduced.",
+    ]
     output: list[str] = []
-    for child in list(body):
-        kind = local_name(child.tag)
-        if kind == "p":
-            text = xml_text(child).strip()
-            if text:
-                style = next((n.attrib.get("{http://schemas.openxmlformats.org/wordprocessingml/2006/main}val")
-                              for n in child.iter() if local_name(n.tag) == "pStyle"), "")
+
+    def append_part(title: str, root: ET.Element) -> None:
+        part_lines: list[str] = []
+        for child in list(root):
+            kind = local_name(child.tag)
+            if kind == "p":
+                text = docx_xml_text(child).strip()
+                if not text:
+                    continue
+                style = next((
+                    node.attrib.get(
+                        "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}val"
+                    )
+                    for node in child.iter() if local_name(node.tag) == "pStyle"
+                ), "")
                 if style and style.lower().startswith("heading"):
                     level_match = re.search(r"(\d+)", style)
                     level = min(int(level_match.group(1)), 6) if level_match else 2
-                    output.append("#" * level + " " + text)
+                    part_lines.append("#" * level + " " + text)
                 else:
-                    output.append(text)
-        elif kind == "tbl":
-            output.append("[TABLE]")
-            for row in child.iter():
-                if local_name(row.tag) != "tr":
-                    continue
-                cells = []
-                for cell in list(row):
-                    if local_name(cell.tag) == "tc":
-                        cell_paras = [xml_text(p).strip() for p in cell.iter() if local_name(p.tag) == "p"]
-                        cells.append(" / ".join(x for x in cell_paras if x))
-                output.append(" | ".join(cells))
-            output.append("[/TABLE]")
-    return "\n\n".join(output), notes
+                    part_lines.append(text)
+            elif kind == "tbl":
+                rows = _docx_table_text(child)
+                if rows:
+                    part_lines.extend(["[TABLE]", *rows, "[/TABLE]"])
+        if part_lines:
+            output.append(f"## {title}")
+            output.extend(part_lines)
+
+    with zipfile.ZipFile(path) as archive:
+        validate_ooxml_archive(archive)
+        names = set(archive.namelist())
+        document = ET.fromstring(read_ooxml_xml_member(archive, "word/document.xml"))
+        body = next((node for node in document.iter() if local_name(node.tag) == "body"), None)
+        if body is None:
+            raise ValueError("DOCX has no document body")
+        append_part("Document body", body)
+
+        for member in sorted(
+            name for name in names
+            if re.fullmatch(r"word/(?:header|footer)\d+\.xml", name)
+        ):
+            root = ET.fromstring(read_ooxml_xml_member(archive, member))
+            label = Path(member).stem.replace("header", "Header ").replace("footer", "Footer ")
+            append_part(label, root)
+
+        for member, label in (
+            ("word/footnotes.xml", "Footnotes"),
+            ("word/endnotes.xml", "Endnotes"),
+            ("word/comments.xml", "Comments"),
+        ):
+            if member in names:
+                root = ET.fromstring(read_ooxml_xml_member(archive, member))
+                append_part(label, root)
+
+    return "\n\n".join(output).rstrip(), notes
+
+def _chart_cache_values(parent: ET.Element | None) -> list[str]:
+    if parent is None:
+        return []
+    values = []
+    for node in parent.iter():
+        if local_name(node.tag) in {"v", "t"} and node.text is not None:
+            values.append(node.text)
+    return values
+
+
+def parse_chart_xml(archive: zipfile.ZipFile, member: str) -> list[str]:
+    """Extract cached category/value labels from an OOXML chart without recalculation."""
+    root = ET.fromstring(read_ooxml_xml_member(archive, member))
+    output = []
+    series_nodes = [node for node in root.iter() if local_name(node.tag) == "ser"]
+    for index, series in enumerate(series_nodes, start=1):
+        title_node = next((node for node in series if local_name(node.tag) == "tx"), None)
+        title_values = _chart_cache_values(title_node)
+        title = " ".join(title_values).strip() or f"Series {index}"
+        category_node = next(
+            (node for node in series if local_name(node.tag) in {"cat", "xVal"}),
+            None,
+        )
+        value_node = next(
+            (node for node in series if local_name(node.tag) in {"val", "yVal"}),
+            None,
+        )
+        categories = _chart_cache_values(category_node)
+        values = _chart_cache_values(value_node)
+        output.append(f"{title}:")
+        if categories:
+            output.append("  Categories: " + " | ".join(categories))
+        if values:
+            output.append("  Values: " + " | ".join(values))
+        if not categories and not values:
+            output.append("  No cached category/value data was embedded in this chart.")
+    return output
+
+
+def append_chart_caches(archive: zipfile.ZipFile, prefix: str, output: list[str]) -> int:
+    pattern = re.compile(re.escape(prefix) + r"/charts/chart\d+\.xml$")
+    members = sorted(name for name in archive.namelist() if pattern.fullmatch(name))
+    for member in members:
+        try:
+            chart_lines = parse_chart_xml(archive, member)
+        except (ET.ParseError, ValueError):
+            output.append(f"[Chart data could not be parsed: {member}]")
+            continue
+        output.append(f"### Chart: {Path(member).name}")
+        output.extend(chart_lines)
+    return len(members)
 
 
 def parse_xlsx(path: Path) -> tuple[str, list[str]]:
-    notes = ["XLSX extraction records sheet names, cell addresses, formulas, and cached values where present.",
-             "Charts, formatting, pivot tables, macros, external links, and full spreadsheet calculation semantics are not reproduced; verify the original workbook for consequential analysis."]
+    notes = [
+        "XLSX extraction records sheet visibility, cell addresses, formulas, cached values, hidden rows/columns, merged ranges, defined names, and cached chart data.",
+        "Formatting, pivots, macros, external connections, data validation, and spreadsheet formula recalculation are not reproduced. Verify the original workbook for consequential calculations.",
+        "Chart values are cached values embedded in the workbook; FidelityFlow does not recalculate formulas or regenerate chart series.",
+    ]
     ns = {
-        "main": "http://schemas.openxmlformats.org/spreadsheetml/2006/main",
         "rel": "http://schemas.openxmlformats.org/officeDocument/2006/relationships",
-        "pkg": "http://schemas.openxmlformats.org/package/2006/relationships",
     }
+    output: list[str] = []
     with zipfile.ZipFile(path) as archive:
         validate_ooxml_archive(archive)
         names = set(archive.namelist())
         workbook = ET.fromstring(read_ooxml_xml_member(archive, "xl/workbook.xml"))
         rels_root = ET.fromstring(read_ooxml_xml_member(archive, "xl/_rels/workbook.xml.rels"))
-        rel_targets = {}
-        for rel in rels_root:
-            rel_targets[rel.attrib.get("Id")] = rel.attrib.get("Target", "")
-        shared = []
+        rel_targets = {
+            relationship.attrib.get("Id"): relationship.attrib.get("Target", "")
+            for relationship in rels_root
+        }
+
+        defined_names = next(
+            (node for node in workbook.iter() if local_name(node.tag) == "definedNames"),
+            None,
+        )
+        if defined_names is not None:
+            names_text = []
+            for item in list(defined_names):
+                if local_name(item.tag) == "definedName":
+                    name = item.attrib.get("name", "unnamed")
+                    scope = item.attrib.get("localSheetId")
+                    formula = (item.text or "").strip()
+                    scope_text = f" (localSheetId={scope})" if scope is not None else ""
+                    names_text.append(f"{name}{scope_text} = {formula}")
+            if names_text:
+                output.append("# Defined names")
+                output.extend(names_text)
+                output.append("")
+
+        shared: list[str] = []
         if "xl/sharedStrings.xml" in names:
-            root = ET.fromstring(read_ooxml_xml_member(archive, "xl/sharedStrings.xml"))
-            shared = ["".join(t.text or "" for t in si.iter() if local_name(t.tag) == "t")
-                      for si in root if local_name(si.tag) == "si"]
-        output: list[str] = []
-        sheets = next((x for x in workbook.iter() if local_name(x.tag) == "sheets"), None)
+            shared_root = ET.fromstring(read_ooxml_xml_member(archive, "xl/sharedStrings.xml"))
+            shared = [
+                "".join(node.text or "" for node in item.iter() if local_name(node.tag) == "t")
+                for item in shared_root if local_name(item.tag) == "si"
+            ]
+
+        sheets = next(
+            (node for node in workbook.iter() if local_name(node.tag) == "sheets"),
+            None,
+        )
         if sheets is None:
             raise ValueError("XLSX workbook contains no sheets")
+
         for sheet in list(sheets):
             if local_name(sheet.tag) != "sheet":
                 continue
             sheet_name = sheet.attrib.get("name", "Unnamed")
+            sheet_state = sheet.attrib.get("state", "visible")
             rid = sheet.attrib.get("{" + ns["rel"] + "}id")
             target = rel_targets.get(rid, "")
             if not target:
                 notes.append(f"Could not resolve worksheet relationship for {sheet_name}.")
                 continue
+
             if target.startswith("/"):
                 member = target.lstrip("/")
             else:
-                member = str(Path("xl") / target).replace("\\", "/")
-                # Normalize xl/../ paths without allowing archive extraction.
-                parts = []
-                for part in member.split("/"):
-                    if part == "..":
-                        if parts:
-                            parts.pop()
-                    elif part != ".":
-                        parts.append(part)
-                member = "/".join(parts)
-            if member not in names:
-                notes.append(f"Worksheet XML missing for {sheet_name}: {member}")
+                member = posixpath.normpath(posixpath.join("xl", target))
+            if member.startswith("../") or member not in names:
+                notes.append(f"Worksheet XML missing or outside workbook for {sheet_name}: {member}")
                 continue
+
             root = ET.fromstring(read_ooxml_xml_member(archive, member))
-            output.append(f"# Sheet: {sheet_name}")
-            for row in root.iter():
-                if local_name(row.tag) != "row":
-                    continue
+            visibility = "" if sheet_state == "visible" else f" [SHEET STATE: {sheet_state}]"
+            output.append(f"# Sheet: {sheet_name}{visibility}")
+
+            for column_group in (node for node in root.iter() if local_name(node.tag) == "cols"):
+                for column in list(column_group):
+                    if local_name(column.tag) != "col" or column.attrib.get("hidden") not in {"1", "true"}:
+                        continue
+                    output.append(
+                        "[HIDDEN COLUMNS: "
+                        + column.attrib.get("min", "?") + "-" + column.attrib.get("max", "?")
+                        + "]"
+                    )
+
+            for row in (node for node in root.iter() if local_name(node.tag) == "row"):
                 row_cells = []
+                if row.attrib.get("hidden") in {"1", "true"}:
+                    output.append(f"[HIDDEN ROW: {row.attrib.get('r', '?')}]")
                 for cell in list(row):
                     if local_name(cell.tag) != "c":
                         continue
-                    ref = cell.attrib.get("r", "?")
-                    ctype = cell.attrib.get("t", "")
-                    formula = next((x.text or "" for x in cell if local_name(x.tag) == "f"), None)
-                    value_node = next((x for x in cell if local_name(x.tag) == "v"), None)
-                    inline_node = next((x for x in cell if local_name(x.tag) == "is"), None)
-                    value = value_node.text if value_node is not None else ""
-                    if ctype == "s" and value:
+                    reference = cell.attrib.get("r", "?")
+                    cell_type = cell.attrib.get("t", "")
+                    formula_node = next(
+                        (node for node in cell if local_name(node.tag) == "f"),
+                        None,
+                    )
+                    value_node = next(
+                        (node for node in cell if local_name(node.tag) == "v"),
+                        None,
+                    )
+                    inline_node = next(
+                        (node for node in cell if local_name(node.tag) == "is"),
+                        None,
+                    )
+                    value = value_node.text if value_node is not None and value_node.text else ""
+                    if cell_type == "s" and value:
                         try:
                             value = shared[int(value)]
                         except (ValueError, IndexError):
-                            pass
-                    elif ctype == "inlineStr" and inline_node is not None:
-                        value = "".join(t.text or "" for t in inline_node.iter() if local_name(t.tag) == "t")
-                    elif ctype == "b":
+                            notes.append(f"Invalid shared-string index in {sheet_name}!{reference}.")
+                    elif cell_type == "inlineStr" and inline_node is not None:
+                        value = "".join(
+                            node.text or "" for node in inline_node.iter()
+                            if local_name(node.tag) == "t"
+                        )
+                    elif cell_type == "b":
                         value = "TRUE" if value == "1" else "FALSE"
-                    if formula is not None:
-                        row_cells.append(f"{ref} formula=({formula}) value=({value})")
+                    elif cell_type == "e":
+                        value = f"[CELL ERROR: {value}]"
+                    if formula_node is not None:
+                        formula = formula_node.text or ""
+                        formula_type = formula_node.attrib.get("t")
+                        type_text = f" type={formula_type}" if formula_type else ""
+                        row_cells.append(
+                            f"{reference} formula=({formula}){type_text} cached_value=({value})"
+                        )
                     elif value != "":
-                        row_cells.append(f"{ref}={value}")
+                        row_cells.append(f"{reference}={value}")
                 if row_cells:
                     output.append(" | ".join(row_cells))
+
+            for merged_group in (node for node in root.iter() if local_name(node.tag) == "mergeCells"):
+                ranges = [
+                    node.attrib.get("ref", "")
+                    for node in list(merged_group) if local_name(node.tag) == "mergeCell"
+                ]
+                if ranges:
+                    output.append("[MERGED CELLS: " + ", ".join(ranges) + "]")
+
+            for auto_filter in (node for node in root.iter() if local_name(node.tag) == "autoFilter"):
+                reference = auto_filter.attrib.get("ref")
+                if reference:
+                    output.append(f"[AUTO FILTER RANGE: {reference}]")
             output.append("")
+
+        chart_count = append_chart_caches(archive, "xl", output)
+        if chart_count:
+            output.insert(0, "# Cached chart data")
     return "\n".join(output).rstrip(), notes
+
+def _relationship_targets(archive: zipfile.ZipFile, rels_member: str) -> dict[str, str]:
+    try:
+        root = ET.fromstring(read_ooxml_xml_member(archive, rels_member))
+    except KeyError:
+        return {}
+    output = {}
+    base = rels_member.rsplit("/_rels/", 1)[0]
+    for relationship in root:
+        if local_name(relationship.tag) != "Relationship":
+            continue
+        target = relationship.attrib.get("Target", "")
+        if not target or relationship.attrib.get("TargetMode") == "External":
+            continue
+        if target.startswith("/"):
+            member = target.lstrip("/")
+        else:
+            member = posixpath.normpath(posixpath.join(base, target))
+        if member.startswith("../"):
+            continue
+        output[relationship.attrib.get("Id", "")] = member
+    return output
 
 
 def parse_pptx(path: Path) -> tuple[str, list[str]]:
-    notes = ["PPTX extraction captures slide text and basic table cell text; it does not reproduce images, charts, diagrams, layout, animations, or speaker notes."]
+    notes = [
+        "PPTX extraction preserves slide order, text, basic table content, shape alt text, speaker notes, and cached chart data.",
+        "Images, diagrams, animation, exact visual coordinates, and layout are not reconstructed; inspect the original slides for visual tasks.",
+        "Chart data is read from embedded cached values and may be stale if the workbook/chart source was not recalculated before saving.",
+    ]
+    output: list[str] = []
     with zipfile.ZipFile(path) as archive:
         validate_ooxml_archive(archive)
-        slide_names = [n for n in archive.namelist() if re.fullmatch(r"ppt/slides/slide\d+\.xml", n)]
-        slide_names.sort(key=lambda n: int(re.search(r"slide(\d+)", n).group(1)))
-        output = []
-        for slide_name in slide_names:
-            num = int(re.search(r"slide(\d+)", slide_name).group(1))
-            root = ET.fromstring(read_ooxml_xml_member(archive, slide_name))
-            output.append(f"# Slide {num}")
+        names = set(archive.namelist())
+        slide_names = [
+            name for name in names
+            if re.fullmatch(r"ppt/slides/slide\d+\.xml", name)
+        ]
+        slide_names.sort(key=lambda name: int(re.search(r"slide(\d+)", name).group(1)))
+
+        for slide_member in slide_names:
+            number = int(re.search(r"slide(\d+)", slide_member).group(1))
+            root = ET.fromstring(read_ooxml_xml_member(archive, slide_member))
+            output.append(f"# Slide {number}")
+            rels_member = f"ppt/slides/_rels/slide{number}.xml.rels"
+            relationships = _relationship_targets(archive, rels_member)
+
             for shape in root.iter():
-                if local_name(shape.tag) == "sp":
+                kind = local_name(shape.tag)
+                if kind == "sp":
+                    non_visual = next(
+                        (node for node in shape.iter() if local_name(node.tag) == "cNvPr"),
+                        None,
+                    )
+                    if non_visual is not None:
+                        shape_name = non_visual.attrib.get("name")
+                        alternative = non_visual.attrib.get("descr") or non_visual.attrib.get("title")
+                        if alternative:
+                            output.append(f"[SHAPE ALT TEXT: {alternative}]")
+                        elif shape_name and shape_name not in {"TextBox 1", "Rectangle 1"}:
+                            output.append(f"[SHAPE: {shape_name}]")
+
+                    transform = next(
+                        (node for node in shape.iter() if local_name(node.tag) == "xfrm"),
+                        None,
+                    )
+                    if transform is not None:
+                        offset = next((node for node in transform if local_name(node.tag) == "off"), None)
+                        extent = next((node for node in transform if local_name(node.tag) == "ext"), None)
+                        if offset is not None or extent is not None:
+                            values = []
+                            if offset is not None:
+                                values.extend([f"x={offset.attrib.get('x', '?')}", f"y={offset.attrib.get('y', '?')}"])
+                            if extent is not None:
+                                values.extend([f"cx={extent.attrib.get('cx', '?')}", f"cy={extent.attrib.get('cy', '?')}"])
+                            output.append("[SHAPE POSITION EMU: " + ", ".join(values) + "]")
+
                     paragraphs = []
-                    for p in shape.iter():
-                        if local_name(p.tag) == "p":
-                            ptext = xml_text(p).strip()
-                            if ptext:
-                                paragraphs.append(ptext)
+                    for paragraph in shape.iter():
+                        if local_name(paragraph.tag) == "p":
+                            paragraph_text = xml_text(paragraph).strip()
+                            if paragraph_text:
+                                paragraphs.append(paragraph_text)
                     output.extend(paragraphs)
-                elif local_name(shape.tag) == "graphicFrame":
+
+                elif kind == "pic":
+                    non_visual = next(
+                        (node for node in shape.iter() if local_name(node.tag) == "cNvPr"),
+                        None,
+                    )
+                    if non_visual is not None:
+                        alternative = non_visual.attrib.get("descr") or non_visual.attrib.get("title")
+                        if alternative:
+                            output.append(f"[IMAGE ALT TEXT: {alternative}]")
+                        else:
+                            output.append("[IMAGE: no alternative text provided]")
+
+                elif kind == "graphicFrame":
                     rows = []
                     for row in shape.iter():
                         if local_name(row.tag) == "tr":
-                            cells = []
-                            for cell in row.iter():
-                                if local_name(cell.tag) == "tc":
-                                    cells.append(xml_text(cell).strip())
+                            cells = [
+                                xml_text(cell).strip()
+                                for cell in row.iter() if local_name(cell.tag) == "tc"
+                            ]
                             if cells:
                                 rows.append(" | ".join(cells))
                     if rows:
-                        output.append("[TABLE]")
-                        output.extend(rows)
-                        output.append("[/TABLE]")
+                        output.extend(["[TABLE]", *rows, "[/TABLE]"])
+
+            for target in relationships.values():
+                if target.startswith("ppt/notesSlides/") and target in names:
+                    note_root = ET.fromstring(read_ooxml_xml_member(archive, target))
+                    note_lines = []
+                    for paragraph in note_root.iter():
+                        if local_name(paragraph.tag) == "p":
+                            value = xml_text(paragraph).strip()
+                            if value and not re.fullmatch(r"\d+", value):
+                                note_lines.append(value)
+                    if note_lines:
+                        output.append("[SPEAKER NOTES]")
+                        output.extend(note_lines)
+                        output.append("[/SPEAKER NOTES]")
             output.append("")
+
+        chart_count = append_chart_caches(archive, "ppt", output)
+        if chart_count:
+            output.insert(0, "# Cached chart data")
+
     if not slide_names:
         notes.append("No standard slide XML files were found.")
     return "\n".join(output).rstrip(), notes
-
 
 def parse_pdf(path: Path) -> tuple[str, list[str]]:
     try:
