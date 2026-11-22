@@ -18,12 +18,12 @@
 
 ## 📦 About FidelityFlow
 
-FidelityFlow v0.3.0 unifies two powerful eras:
+FidelityFlow v0.3.1 unifies the file-processing and project-memory capabilities:
 
 1. **File Processing & Caching** *(from v0.1.0)*  
    Extracts, indexes, and searches large documents (PDF, DOCX, XLSX, PPTX, Markdown…) without re-reading unchanged files.
 
-2. **Evidence-Backed Project Memory** *(from v0.2.0 + new 0.3.0 integration)*  
+2. **Evidence-Backed Project Memory** *(introduced in v0.2.0 and unified in v0.3.1)*  
    Records, verifies, and recalls verified project facts across **independent Claude sessions** using SQLite.
 
 3. **Output Archiving (opt-in)**  
@@ -87,9 +87,9 @@ fidelityflow search --query "API key rotation" --top-k 5
 
 ---
 
-### Memory Retention (`fflearn observe` + `recall`)  <!-- NEW IN 0.3.0 -->
+### Memory Retention (`fflearn observe` + `recall`)  <!-- introduced in 0.3.0 -->
 - Facts are stored in `~/.fidelityflow/learning.sqlite3`.
-- **Multi-session verification:** Requires observations from 2+ independent sessions before promotion.
+- **Multi-session verification:** Requires two independent sessions by default. The threshold is fixed by the first observation for each key/value.
 - **Contradiction handling:** Conflicting values are suspended until human confirmation.
 
 ```bash
@@ -118,8 +118,8 @@ When the optional `PostToolUse` hook is enabled:
 
 ```bash
 # View archived stdout
-fidelityflow show-archive --ref "pytest output"
-fidelityflow search-archive --ref "pytest output" --query "FAILED test_xyz"
+fidelityflow show-archive --ref ARCHIVE_REF
+fidelityflow search-archive --ref ARCHIVE_REF --query "FAILED test_xyz"
 ```
 
 ---
