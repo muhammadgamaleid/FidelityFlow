@@ -89,7 +89,7 @@ def extract_pdf_pages(
     except ImportError as exc:
         raise RuntimeError(
             "Scanned PDF OCR requires PyMuPDF. Install with "
-            "python -m pip install -e ".[ocr]"."
+            'python -m pip install -e ".[ocr]".'
         ) from exc
 
     results: dict[int, str] = {}
