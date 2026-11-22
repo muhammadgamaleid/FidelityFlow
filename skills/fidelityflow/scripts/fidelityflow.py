@@ -762,7 +762,7 @@ def _find_structural_boundary(
         if any(pattern.match(line) for pattern in patterns):
             candidates.append(line_start)
         cursor = text.find("\n", line_start, end)
-    return candidates[-1] if candidates else None
+    return candidates[0] if candidates else None
 
 
 def split_chunks(
@@ -988,6 +988,7 @@ def tokenize(value: str) -> list[str]:
         expanded = re.sub(r"([a-z0-9])([A-Z])", r"\1 \2", expanded)
         candidates = [raw]
         candidates.extend(re.split(r"[_'-]+", raw))
+        candidates.extend(expanded.split())
         candidates.extend(re.split(r"[_'-]+", expanded))
         for candidate in candidates:
             term = candidate.casefold()

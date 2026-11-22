@@ -73,7 +73,7 @@ class FidelityFlowCliTests(unittest.TestCase):
         chunks = module.split_chunks(source, 200, source_suffix=".py")
         self.assertGreater(len(chunks), 1)
         self.assertEqual("".join(item["text"] for item in chunks), source)
-        self.assertEqual(source[chunks[0]["char_end"]:].startswith("class OAuthTokenManager"), True)
+        self.assertTrue(source[chunks[0]["char_end"]:].startswith("class OAuthTokenManager"))
         self.assertEqual(chunks[0]["boundary_type"], "structure")
 
     def test_search_excerpt_centers_match_and_preserves_code_line_breaks(self):
@@ -761,7 +761,7 @@ class UnifiedPackageCliTests(unittest.TestCase):
             capture_output=True, text=True, timeout=10,
         )
         self.assertEqual(version.returncode, 0, version.stderr)
-        self.assertIn("0.4.0", version.stdout)
+        self.assertIn("0.5.0", version.stdout)
 
 
 class InstallerTests(unittest.TestCase):
