@@ -1,187 +1,176 @@
+<div align="center">
+
 # FidelityFlow
 
-**Reduce avoidable Claude context usage without silently sacrificing task quality.**
+**Spend fewer Claude tokens on context. Keep the information that matters.**
 
-FidelityFlow is a Claude-focused toolkit for processing large files before repeatedly sending their contents to Claude, retrieving relevant excerpts, and conservatively filtering a small set of redundant Claude Code tool outputs.
+A Claude-focused toolkit for local file indexing, targeted retrieval, and conservative Claude Code output optimization.
 
-Its rule is simple: **measure real savings, preserve the source, and never trade away information needed for the task.**
+[![CI](https://github.com/muhammadgamaleid/FidelityFlow/actions/workflows/tests.yml/badge.svg?branch=main)](https://github.com/muhammadgamaleid/FidelityFlow/actions/workflows/tests.yml)
+![Python](https://img.shields.io/badge/Python-3.10%2B-3776AB?logo=python&logoColor=white)
+![License](https://img.shields.io/badge/License-MIT-green.svg)
+![Claude Skills](https://img.shields.io/badge/Claude_Skills-Free_%2B_Paid-blueviolet)
+![Claude Plugins](https://img.shields.io/badge/Claude_Plugins-Paid_Plans-orange)
 
-> **Project status:** Early and actively developed. The current release provides local file extraction and indexing, exact repeated-Read suppression in Claude Code, narrowly scoped successful test-output compaction, and evidence-backed project memory. Image/OCR processing, general MCP-result optimization, conversation-history interception, and measured end-to-end savings are not implemented yet. No universal saving percentage is claimed.
+</div>
 
-## Choose the right Claude upload
+> **Honest status:** FidelityFlow is under active development. Current capabilities and limitations are listed below. We do not publish a token-saving percentage until controlled tests prove net savings without reducing task quality.
 
-| Upload type | Free plan | Paid plans |
-|---|---:|---:|
-| **FidelityFlow Skill** | **Yes** | **Yes** |
-| **FidelityFlow Plugin** | No | **Yes** (Pro, Max, Ultra, Team, Enterprise) |
+## Contents
 
-Custom Skills are available on Free and paid Claude plans when **Code execution and file creation** is enabled. Custom Plugins are currently available only on paid plans. Team and Enterprise administrators may apply organization policies.
+- [Why FidelityFlow](#why-fidelityflow)
+- [Choose your Claude installation](#choose-your-claude-installation)
+- [Install on Claude.ai](#install-on-claudeai)
+- [Install on Claude Code](#install-on-claude-code)
+- [What works today](#what-works-today)
+- [Practical ways to use fewer tokens](#practical-ways-to-use-fewer-tokens)
+- [Measurement and quality](#measurement-and-quality)
+- [Roadmap](#roadmap)
+- [Privacy and limitations](#privacy-and-limitations)
 
-**Free users should use the Skill archive.** The Plugin archive is optional for paid users. Both packages include the same FidelityFlow Skill; the Plugin package is a convenient wrapper, not an additional token-saving engine.
+## Why FidelityFlow
 
-Official details: [Use Skills in Claude](https://support.claude.com/en/articles/12512180-use-skills-in-claude) · [Use Plugins in Claude](https://support.claude.com/en/articles/13837440-use-plugins-in-claude).
+Large files, repeated reads, long tool results, unused tools, and oversized conversation history can all add context. FidelityFlow focuses on avoidable repetition and retrieval overhead—not on shortening answers that need to be complete.
 
-## What FidelityFlow does today
+**The core rule:** preserve the original, retrieve only what the task needs, and leave uncertain content untouched.
 
-| Capability | Claude.ai Skill | Claude Code |
-|---|---|---|
-| Extract supported text and Office/PDF content | Yes, when files are accessible in the Skill execution workspace | Yes |
-| Content-addressed local cache | Workspace lifetime; persistence not guaranteed | Persistent local cache |
-| Lexical search and bounded excerpt retrieval | Yes | Yes |
-| Exact duplicate Read result suppression | No | Optional hook |
-| Conservative successful test-output compaction | No | Optional hook |
-| Evidence-backed project memory | No persistent local SQLite memory | Yes |
-| Image OCR and visual-image processing | Not yet | Not yet |
-| General MCP, web-search, or arbitrary tool-result optimization | Not yet | Not yet |
-| Control over Claude's initial attachment ingestion | No | Not applicable to local pre-processing |
+## Choose your Claude installation
 
-The current search engine is lexical, not semantic. PDF extraction requires optional pypdf in a local Python installation. Scanned PDFs, images, complex visual layouts, and legacy Office formats need other handling.
+| Package | Free | Pro / Max / Ultra | Team / Enterprise |
+|---|:---:|:---:|:---:|
+| **FidelityFlow Skill** | Yes* | Yes* | Yes* |
+| **FidelityFlow Plugin** | — | Yes* | Yes* |
 
-## Get the upload packages
+* Skills and Plugins require the relevant Claude capabilities and may be restricted by Team or Enterprise administrators. The Skill is the recommended upload for Free accounts. The Plugin package currently wraps the same Skill; it does not add a hosted service or extra optimization engine.
 
-### 1. Download the project
-
-Clone the repository if you have access:
-
-~~~bash
-git clone https://github.com/muhammadgamaleid/FidelityFlow.git
-cd FidelityFlow
-~~~
-
-Or download the source ZIP from GitHub and extract it. The repository is currently private, so source archives and Actions artifacts are available only to accounts with repository access; publish the repository or share release archives before distributing to other users.
-
-### 2. Build and validate both packages
-
-Python 3.10 or newer is required:
-
-~~~bash
-python build_release.py --check
-~~~
-
-This creates:
-- **dist/fidelityflow-claude-ai.zip** — for Free and paid Claude accounts (the legacy filename is retained for compatibility).
-- **dist/fidelityflow-plugin.zip** — for paid Claude accounts only.
-
-The command validates Skill metadata, internal links, mirrored documentation, the Plugin manifest, package contents, and ZIP integrity.
-
-You can also download the **fidelityflow-claude-uploads** artifact from a successful GitHub Actions run. It contains both archives.
+Official availability: [Claude Skills](https://support.claude.com/en/articles/12512180-use-skills-in-claude) · [Claude Plugins](https://support.claude.com/en/articles/13837440-use-plugins-in-claude).
 
 ## Install on Claude.ai
 
-### Option A — Skill (Free and paid plans)
+### Option A — Upload the Skill (Free and paid)
 
-1. Open Claude and go to **Settings → Capabilities**.
-2. Enable **Code execution and file creation**. In the newer Settings layout this may appear as **Create and edit files**.
-3. Open **Customize → Skills**.
-4. Click **+ → Create skill → Upload a skill**.
-5. Select **dist/fidelityflow-claude-ai.zip**.
-6. Enable FidelityFlow in your Skills list.
+1. Open **Settings → Capabilities** and enable **Code execution and file creation** (also labelled **Create and edit files** in the updated settings).
+2. Open **Customize → Skills**.
+3. Choose **+ → Create skill → Upload a skill**.
+4. Upload `dist/fidelityflow-claude-ai.zip`.
+5. Enable FidelityFlow in your Skills list.
 
-The upload UI may also accept a .skill or .md file. The ZIP generated by this project contains a top-level fidelityflow/SKILL.md folder structure.
-
-### Option B — Plugin (paid plans only)
+### Option B — Upload the Plugin (paid plans)
 
 1. Open **Customize → Plugins**.
-2. Choose the option to upload a custom Plugin.
-3. Select **dist/fidelityflow-plugin.zip**.
+2. Choose the custom Plugin upload option.
+3. Upload `dist/fidelityflow-plugin.zip`.
 4. Enable FidelityFlow.
 
-Because this Plugin bundles a Skill, keep Claude's **Code execution and file creation** capability enabled for its file-processing commands.
+The Plugin includes the Skill. Keep **Code execution and file creation** enabled so its file-processing workflow can run. Plugin hooks and sub-agents are not active in ordinary web chat.
 
-The Plugin archive currently bundles the FidelityFlow Skill only. It does **not** bundle a hosted service, MCP server, sub-agent, or chat hook. Plugin hooks and sub-agents do not run in ordinary web chat.
+### Build the upload files yourself
 
-### Use it
+Download or clone the repository, then run:
 
-Ask Claude to use FidelityFlow when working with a large file or recurring collection:
+```bash
+python build_release.py --check
+```
 
-- "Use FidelityFlow to index this accessible report, then search for the sections about operating costs. Show only relevant excerpts and page references."
-- "Search the files already indexed by FidelityFlow for the authentication flow. Do not print the entire files."
-- "Before reading a large document again, check whether FidelityFlow already has a cache entry."
+This validates and creates both archives under `dist/`. Python 3.10 or newer is required.
 
-For a small, one-off file, normal Claude file handling may be simpler. FidelityFlow's own instructions and scripts have overhead; use them when expected repeated retrieval or tool-output savings can exceed that overhead.
-
-## Install for Claude Code
+## Install on Claude Code
 
 From the repository directory:
 
-~~~bash
+```bash
 python -m pip install -e ".[pdf]"
 fidelityflow doctor
 python install.py --scope user
-~~~
+```
 
-Enable optional Claude Code hooks only when you explicitly want them:
+To enable the optional output hooks:
 
-~~~bash
+```bash
 python install.py --scope user --enable-output-hook
-~~~
+```
 
-The installer backs up and merges Claude settings instead of replacing unrelated settings. Review changes to the Claude settings file and hook scripts before enabling them, especially in sensitive repositories.
+Hooks are opt-in. Review the settings backup and local archive behavior before enabling them, especially in sensitive projects.
 
-Useful commands:
+**Useful commands**
 
-~~~bash
+```bash
 fidelityflow ingest "docs/architecture.pdf"
 fidelityflow search --query "authentication flow" --top-k 5
 fidelityflow show --document DOCUMENT_ID --chunk 0
 fidelityflow doctor
-~~~
+```
 
-The local engine supports text/code, Markdown, CSV/TSV, JSON/JSONL, YAML, XML/HTML, DOCX, XLSX, PPTX, and PDF (with the optional PDF dependency). Run the doctor command to see which extractors are available.
+For PDF extraction, install the `pdf` extra as shown above.
 
-## A practical workflow that avoids unnecessary context
+## What works today
 
-1. **Keep recurring source material in one Claude Project.** Add stable documents to Project Knowledge once rather than attaching the same library to every new chat.
-2. **Keep Project Instructions short.** Put task-specific guidance in Skills or reference documents.
-3. **Use a new chat for an unrelated task.** Do not carry a long history into a task that does not need it.
-4. **In Claude Code, inspect /context and /usage.** Use /clear for a new task and /compact when continuing the same task, preserving important decisions and unresolved questions.
-5. **Disable unused MCP servers and connectors.** Keep only the tools needed for the current task. Tool definitions and returned results can both contribute to context.
-6. **Prefer targeted reads.** Search for symbols, terms, or line ranges before reading a whole directory or large file.
-7. **Avoid repeated uploads and tool calls.** Reuse Project Knowledge, local indexes, and stable source references where appropriate.
-8. **Do not lower reasoning effort blindly.** Use lower effort for routine tasks, but retain sufficient effort for architecture, security, data, and other high-stakes work.
+| Capability | Claude.ai Skill | Claude Code |
+|---|:---:|:---:|
+| Extract text, code, DOCX, XLSX, PPTX, and PDF text | Yes, when source files are exposed to the Skill workspace | Yes |
+| Local content-addressed cache | Workspace lifetime; persistence is not guaranteed | Persistent local cache |
+| Lexical search and bounded excerpt retrieval | Yes | Yes |
+| Exact repeated large `Read` suppression | — | Optional hook |
+| Narrow successful test-output compaction | — | Optional hook |
+| Evidence-backed project memory | — | Local SQLite |
 
-These are user workflow recommendations, not actions FidelityFlow can silently enforce on Claude.ai.
+**Not implemented yet:** standalone image OCR, scanned-PDF OCR, broad MCP/web/tool-result optimization, generic conversation-history rewriting, and independently validated end-to-end token savings.
 
-## Important platform and quality boundaries
+Search is lexical, not semantic. Office extraction is text-oriented and does not fully reconstruct visual layout, charts, embedded objects, or spreadsheet calculation behavior.
 
-- A Claude.ai Skill cannot intercept Claude's internal initial attachment-upload/parser pipeline. It cannot guarantee that the first upload is free of context or usage cost.
-- Claude.ai Skill execution happens in a managed workspace. Do not assume its local cache survives unrelated chats, workspace resets, or future sessions.
-- Claude Code hooks can modify supported tool output before it is added to model context. Current hooks support only exact repeated large Read results and a narrow set of successful test-runner outputs.
-- A shorter excerpt is not automatically a valid optimization. If omitted information may affect the answer, retrieve the original or leave the content unchanged.
-- The output hook archives original stdout locally. This is not encryption. Avoid enabling it where local output retention is not acceptable.
-- FidelityFlow does not change Claude pricing, subscription limits, model choice, thinking budgets, or Anthropic's prompt-cache policy.
-- Subscription usage limits and API token billing are different. Do not convert a subscription usage indicator into a dollar-saving estimate.
-- No percentage-saving or "same quality" claim is made until representative baseline and optimized runs have been measured.
+## Practical ways to use fewer tokens
 
-## How savings should be measured
+These habits help even before enabling FidelityFlow:
 
-Count all relevant costs, not just the length of filtered text:
-- Input tokens.
-- Cache-creation and cache-read input tokens.
-- Output tokens and thinking tokens, when exposed.
-- Extra tool calls, retries, and recovery reads.
-- Skill/Plugin instruction overhead.
-- Any model-assisted preprocessing.
-- Latency and task-quality results.
+1. **Use Claude Projects for recurring reference material.** Keep stable documents in Project Knowledge instead of repeatedly attaching the same library.
+2. **Start a new chat for an unrelated task.** Do not carry old conversation history when it is no longer useful.
+3. **Keep project instructions focused.** Put task-specific procedures in Skills rather than repeating them in every prompt.
+4. **Disable MCP servers and connectors you do not use.** Tool definitions and tool results can both add context.
+5. **Ask for targeted reads.** Search for filenames, symbols, terms, or line ranges before loading large files.
+6. **In Claude Code, inspect `/context` and `/usage`.** Use `/clear` for a separate task and `/compact` when continuing the same task.
+7. **Keep the right reasoning effort.** Lower effort may suit routine tasks; do not reduce it blindly for architecture, security, or data-critical work.
 
-For Claude Code, the usage utility reads fields present in a local JSONL transcript:
+FidelityFlow does not silently change Claude's model, billing, thinking budget, prompt-cache policy, or initial web upload pipeline.
 
-~~~bash
+## Measurement and quality
+
+A shorter tool result is not automatically a real saving. A fair evaluation counts:
+
+- Input, cache-creation, cache-read, output, and thinking tokens when exposed.
+- Skill instructions, extra calls, retries, and recovery reads.
+- Actual API cost when the user supplies the applicable model pricing.
+- Task correctness, evidence fidelity, retrieval accuracy, and output completeness.
+
+For a Claude Code JSONL transcript:
+
+```bash
 python benchmarks/read_claude_usage.py "/path/to/session.jsonl"
-~~~
+```
 
-It does not estimate missing token counts and does not currently measure Claude.ai web-chat usage. A fair A/B test uses the same model, task, files, cache conditions, and quality rubric.
+This reads usage fields present in the transcript. It does not estimate missing values or measure Claude.ai web-chat usage. Subscription usage limits are not the same as API dollar billing.
 
-See [the consumption strategy](docs/CONSUMPTION-STRATEGY.md), [architecture](docs/ARCHITECTURE.md), [file-processing limits](skills/fidelityflow/references/file-processing.md), and [platform setup](skills/fidelityflow/references/platform-setup.md).
+## Roadmap
 
-## Privacy
+Work is sequenced from the most contained improvements to the deeper integrations:
 
-- File indexes, caches, memory, and optional output archives are stored locally in the configured workspace or user directory.
-- Local caches and archives are not encrypted by FidelityFlow.
-- The project makes no network calls for local extraction, indexing, search, or hook transformation.
-- Redaction is best-effort, not a guarantee that every secret is detected.
-- Never index or archive sensitive material unless you understand where it will be stored and who can access that location.
+1. **File and document fidelity:** improve Office structure and source references.
+2. **Image and scanned-document processing:** optional OCR with page/region traceability.
+3. **Tool and MCP outputs:** safe, schema-aware adapters with reversible originals.
+4. **Session and context management:** better compaction guidance and supported Claude Code lifecycle handling.
+5. **Benchmark suite:** controlled comparisons of token usage, cost, latency, and task quality.
+
+Features remain labelled as planned until implemented and tested.
+
+## Privacy and limitations
+
+- Original files are never modified by the local indexer.
+- Local caches, project memory, and optional output archives may contain sensitive data and are **not encrypted** by FidelityFlow.
+- The local extraction and hook code makes no network calls.
+- Redaction is best-effort, not a guarantee.
+- A Claude.ai Skill cannot intercept the platform's initial attachment ingestion or guarantee that the first upload is free.
+- Skill-workspace cache persistence across unrelated chats or VM resets is not guaranteed.
+- Unknown, ambiguous, structured, failed, or sensitive tool output must pass through unchanged unless a format-specific adapter proves a safe transformation.
 
 ## License
 
-MIT. See [LICENSE](LICENSE).
+MIT — see [LICENSE](LICENSE).
