@@ -618,8 +618,6 @@ def parse_pdf(
     return "\n\n".join(pages), notes
 
 def expected_extractor(path: Path, ocr: bool = False) -> str | None:
-
-def expected_extractor(path: Path, ocr: bool = False) -> str | None:
     suffix = normalized_suffix(path)
     image_suffixes = {".png", ".jpg", ".jpeg", ".tif", ".tiff", ".bmp", ".webp"}
     if suffix in image_suffixes:
@@ -642,8 +640,6 @@ def expected_extractor(path: Path, ocr: bool = False) -> str | None:
     if suffix in text_suffixes or not suffix:
         return "text-utf8-v1"
     return None
-
-def extract_file(path: Path, ocr: bool = False, ocr_lang: str = "eng", ocr_dpi: int = 180, ocr_max_pages: int = 100) -> tuple[str, list[str], str]:
 
 def extract_file(
     path: Path,
@@ -697,8 +693,6 @@ def extract_file(
     raise RuntimeError(
         f"Unsupported file type: {suffix or '[no extension]'}. Keep the original and use Claude's native file handling or convert explicitly."
     )
-
-def split_chunks(text: str, max_chars: int = CHUNK_CHARS) -> list[dict]:
 
 def split_chunks(text: str, max_chars: int = CHUNK_CHARS) -> list[dict]:
     """Split without dropping characters; chunk text concatenation equals input."""
