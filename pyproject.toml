@@ -1,0 +1,18 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "fidelityflow"
+version = "0.3.0"
+description = "Unified context-efficiency toolkit and evidence-backed project memory for Claude.ai and Claude Code"
+requires-python = ">=3.10"
+dependencies = []
+
+[project.scripts]
+fidelityflow = "fidelityflow:main"
+fflearn = "fidelityflow.learning.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["fidelityflow*", "skills*"]
