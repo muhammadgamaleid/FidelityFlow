@@ -35,12 +35,20 @@ Supported navigation hints:
 | Standalone OCR images | Image-level source identity |
 | Other text formats | Document identity and line range |
 
-The manifest includes a compact `source_map` summary (located chunk count and discovered page/slide/sheet/table/image/chart identifiers). Search results and `show` display the mapped source location so a retrieved passage can be traced back to its originating part of the file.
+The manifest includes a versioned `source_map` summary (located chunk count, discovered page/slide/sheet/table/image/chart identifiers, and mapped region count). Search results and `show` display the mapped source location and up to three region previews so a retrieved passage can be traced back to its originating part of the file.
+
+### Image-region coordinates
+
+- OCR text lines carry approximate pixel bounding boxes (`x`, `y`, `width`, `height`) and mean word confidence. The source map attaches those boxes to the relevant chunk and records the processed image width and height.
+- For scanned PDF pages, OCR boxes are relative to the rendered page image at the selected OCR DPI, not PDF points or the original embedded image.
+- PPTX picture objects carry their native OOXML object ID and bounding rectangle in slide EMUs when the file contains a complete transform. The slide canvas dimensions are recorded where available.
+- Coordinates are not silently converted between pixels, PDF points, and EMUs. Each region explicitly identifies its coordinate space.
+- Picture bounds identify the image object's placement on a slide; they do not identify semantic subregions inside that picture. DOCX floating images, chart plot-area geometry, and semantic diagram regions remain unsupported.
 
 Important boundaries:
 - A chunk can span more than one page, slide, or other marked region; all explicit regions represented in that chunk are retained.
 - XLSX cell references are recorded only when the extractor emitted them in the chunk.
-- Image mapping identifies the image source or an extracted image marker; it does not claim pixel-accurate OCR boxes or semantic understanding of the image.
+- OCR boxes are approximate and reflect the processed image. PPTX image bounds are native slide-object bounds; neither mechanism provides semantic understanding of image content.
 - DOCX table numbering and PPTX image numbering are extraction-order identifiers, not native Office object IDs.
 - These are navigation hints, not reconstructed page geometry, exact visual coordinates, or a guarantee that every source element was extractable. Always verify consequential content against the original.
 
