@@ -11,7 +11,21 @@ A local-first toolkit for Claude that indexes files, retrieves relevant source p
 ![Version](https://img.shields.io/badge/version-0.6.0-blue)
 ![License](https://img.shields.io/badge/license-MIT-green)
 
-[Features](#features) · [Install on Claude.ai](#install-on-claudeai) · [Install on Claude Code](#install-on-claude-code) · [CLI](#cli-quick-start) · [Architecture](docs/ARCHITECTURE.md) · [Changelog](CHANGELOG.md)
+## Contents
+
+- [Why FidelityFlow](#why-fidelityflow)
+- [Features](#features)
+- [Choose the right installation](#choose-the-right-installation)
+- [Install on Claude.ai](#install-on-claudeai)
+- [Install on Claude Code](#install-on-claude-code)
+- [CLI quick start](#cli-quick-start)
+- [What FidelityFlow does not do](#what-fidelityflow-does-not-do)
+- [Measurement and quality](#measurement-and-quality)
+- [Documentation](#documentation)
+- [Privacy](#privacy)
+- [License](#license)
+
+[Architecture](docs/ARCHITECTURE.md) · [Changelog](CHANGELOG.md)
 
 </div>
 
@@ -30,6 +44,13 @@ Large files, repeated reads, oversized tool results, and unnecessary context can
 
 ## Features
 
+| Capability | Claude.ai Skill | Claude Code |
+|---|:---:|:---:|
+| File indexing and bounded retrieval | Yes, for workspace-visible files | Yes |
+| Persistent local cache and SQLite memory | Not guaranteed | Yes |
+| Optional Tesseract OCR and OpenCV | Not guaranteed | Yes, with local dependencies |
+| Optional output hooks | No | Yes |
+
 | Area | Current capabilities |
 |---|---|
 | File indexing | Text, source code, Markdown, CSV/TSV, JSON/JSONL, YAML, XML/HTML, DOCX, XLSX, PPTX, and PDF text |
@@ -42,6 +63,17 @@ Large files, repeated reads, oversized tool results, and unnecessary context can
 | Diagnostics | `fidelityflow doctor`, usage transcript reader, release archive validation |
 
 Visual candidates are geometric heuristics, not semantic image understanding. Raster chart values and series are not reliably reconstructed; embedded raster media inside DOCX/PPTX is not automatically OCR-analyzed. See [file-processing limitations](skills/fidelityflow/references/file-processing.md).
+
+## Why FidelityFlow?
+
+Large files, repeated reads, oversized tool results, and unnecessary context can make Claude sessions harder and more expensive to operate. FidelityFlow focuses on avoidable repetition and retrieval overhead—not on shortening answers that need to be complete.
+
+**Design principles**
+- Keep the original source authoritative and unchanged.
+- Index once, search narrowly, and retrieve only the passages a task needs.
+- Preserve source locations and coordinate systems.
+- Leave unknown, failed, structured, sensitive, or ambiguous output untouched.
+- Make local hooks opt-in and transformations recoverable.
 
 ## Choose the right installation
 
