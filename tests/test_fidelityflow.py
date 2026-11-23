@@ -344,8 +344,10 @@ class FidelityFlowCliTests(unittest.TestCase):
         self.assertIn('catAx id=1 title="Quarter"', joined)
         self.assertIn("max=500", joined)
         self.assertIn("[CHART_LEGEND present=true position=b]", joined)
-        self.assertIn("Categories: 0=Q1 | 2=Q3", joined)
-        self.assertIn("Values: 0=100 | 2=300", joined)
+        self.assertIn("Categories: Q1 | Q3", joined)
+        self.assertIn("Category point indices: 0 | 2", joined)
+        self.assertIn("Values: 100 | 300", joined)
+        self.assertIn("Value point indices: 0 | 2", joined)
 
     def test_pptx_extracts_native_connector_endpoints(self):
         module = load_module(CLI, "fidelityflow_connector_semantics_test")
