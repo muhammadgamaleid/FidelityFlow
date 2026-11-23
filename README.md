@@ -2,110 +2,182 @@
 
 # FidelityFlow
 
-**Spend fewer Claude tokens on context. Keep the information that matters.**
+**Make Claude's context more efficient without losing the evidence.**
 
-A Claude-focused toolkit for local file indexing, targeted retrieval, and conservative Claude Code output optimization.
+A local-first toolkit for Claude that indexes files, retrieves relevant source passages, and applies conservative, recoverable context optimizations in Claude Code.
 
-[![CI](https://github.com/muhammadgamaleid/FidelityFlow/actions/workflows/tests.yml/badge.svg?branch=main)](https://github.com/muhammadgamaleid/FidelityFlow/actions/workflows/tests.yml)
+[![Tests](https://github.com/muhammadgamaleid/FidelityFlow/actions/workflows/tests.yml/badge.svg?branch=main)](https://github.com/muhammadgamaleid/FidelityFlow/actions/workflows/tests.yml)
 ![Python](https://img.shields.io/badge/Python-3.10%2B-3776AB?logo=python&logoColor=white)
-![License](https://img.shields.io/badge/License-MIT-green.svg)
-![Claude Skills](https://img.shields.io/badge/Claude_Skills-Free_%2B_Paid-blueviolet)
-![Claude Plugins](https://img.shields.io/badge/Claude_Plugins-Paid_Plans-orange)
+![Version](https://img.shields.io/badge/version-0.6.0-blue)
+![License](https://img.shields.io/badge/license-MIT-green)
+
+[Features](#features) · [Install on Claude.ai](#install-on-claudeai) · [Install on Claude Code](#install-on-claude-code) · [CLI](#cli-quick-start) · [Architecture](docs/ARCHITECTURE.md) · [Changelog](CHANGELOG.md)
 
 </div>
 
-> **Honest status:** FidelityFlow is under active development. Current capabilities and limitations are listed below. We do not publish a token-saving percentage until controlled tests prove net savings without reducing task quality.
+> **Project status:** active development. FidelityFlow does not advertise a token- or cost-saving percentage. Any optimization must be measured against actual usage and task quality before a quantitative claim is made.
 
-## Contents
+## Why FidelityFlow?
 
-- [Why FidelityFlow](#why-fidelityflow)
-- [Choose your Claude installation](#choose-your-claude-installation)
-- [Install on Claude.ai](#install-on-claudeai)
-- [Install on Claude Code](#install-on-claude-code)
-- [What works today](#what-works-today)
-- [Practical ways to use fewer tokens](#practical-ways-to-use-fewer-tokens)
-- [Measurement and quality](#measurement-and-quality)
-- [Roadmap](#roadmap)
-- [Privacy and limitations](#privacy-and-limitations)
+Large files, repeated reads, oversized tool results, and unnecessary context can make Claude sessions harder and more expensive to operate. FidelityFlow focuses on avoidable repetition and retrieval overhead—not on shortening answers that need to be complete.
 
-## Why FidelityFlow
+**Design principles**
+- Keep the original source authoritative and unchanged.
+- Index once, search narrowly, and retrieve only the passages a task needs.
+- Preserve source locations and coordinate systems.
+- Leave unknown, failed, structured, sensitive, or ambiguous output untouched.
+- Make local hooks opt-in and transformations recoverable.
 
-Large files, repeated reads, long tool results, unused tools, and oversized conversation history can all add context. FidelityFlow focuses on avoidable repetition and retrieval overhead—not on shortening answers that need to be complete.
+## Features
 
-**The core rule:** preserve the original, retrieve only what the task needs, and leave uncertain content untouched.
+| Area | Current capabilities |
+|---|---|
+| File indexing | Text, source code, Markdown, CSV/TSV, JSON/JSONL, YAML, XML/HTML, DOCX, XLSX, PPTX, and PDF text |
+| Retrieval | Local content-addressed cache, lexical ranking, code-identifier expansion, bounded excerpts, full-chunk recovery |
+| Source mapping | PDF pages, PPTX slides/shapes/charts/connectors, XLSX sheets/cells, DOCX tables and picture anchors, OCR image regions |
+| OCR | Optional local Tesseract OCR for images and sparse-text PDF pages; confidence and pixel coordinates |
+| Visual candidates | Optional OpenCV shape, plot-area, nearby-label, arrow, and tentative flowchart-connection candidates |
+| Claude Code | Optional hooks for exact repeated text-result filtering, narrow successful test-output compaction, and PreCompact guidance |
+| Project memory | Local SQLite evidence-backed facts for Claude Code |
+| Diagnostics | `fidelityflow doctor`, usage transcript reader, release archive validation |
 
-## Choose your Claude installation
+Visual candidates are geometric heuristics, not semantic image understanding. Raster chart values and series are not reliably reconstructed; embedded raster media inside DOCX/PPTX is not automatically OCR-analyzed. See [file-processing limitations](skills/fidelityflow/references/file-processing.md).
 
-| Package | Free | Pro / Max / Ultra | Team / Enterprise |
-|---|:---:|:---:|:---:|
-| **FidelityFlow Skill** | Yes* | Yes* | Yes* |
-| **FidelityFlow Plugin** | — | Yes* | Yes* |
+## Choose the right installation
 
-* Skills and Plugins require the relevant Claude capabilities and may be restricted by Team or Enterprise administrators. The Skill is the recommended upload for Free accounts. The Plugin package currently wraps the same Skill; it does not add a hosted service or extra optimization engine.
+| What you need | Recommended path |
+|---|---|
+| Use the workflow in Claude.ai | Upload the **Skill ZIP** |
+| Install a Claude plugin in Claude.ai | Upload the **Plugin ZIP** (if custom plugin upload is available to your account) |
+| Use indexing and retrieval locally | Install the Python package |
+| Use Claude Code hooks and local project memory | Install the package and Skill, then opt in to hooks |
+| Test the plugin from a checkout | Launch Claude Code with `--plugin-dir` |
 
-Official availability: [Claude Skills](https://support.claude.com/en/articles/12512180-use-skills-in-claude) · [Claude Plugins](https://support.claude.com/en/articles/13837440-use-plugins-in-claude).
+The Skill teaches Claude when and how to use the workflow. The local Python package provides the CLI and hooks. Installing a Skill does **not** install Python, Tesseract, or Claude Code hooks.
 
 ## Install on Claude.ai
 
-### Option A — Upload the Skill (Free and paid)
+### A. Upload the Skill (recommended)
 
-1. Open **Settings → Capabilities** and enable **Code execution and file creation** (also labelled **Create and edit files** in the updated settings).
-2. Open **Customize → Skills**.
-3. Choose **+ → Create skill → Upload a skill**.
-4. Upload `dist/fidelityflow-claude-ai.zip`.
-5. Enable FidelityFlow in your Skills list.
+The Skill ZIP is suitable for Claude.ai custom Skill upload on accounts where custom Skills and code execution are enabled.
 
-### Option B — Upload the Plugin (paid plans)
+1. Download **`fidelityflow-claude-ai.zip`** from the [latest GitHub Release](https://github.com/muhammadgamaleid/FidelityFlow/releases/latest). If no release is published yet, build it locally using the commands below.
+2. Open [Claude](https://claude.ai/).
+3. Open **Settings → Capabilities** and enable **Code execution and file creation** (the label may appear as **Create and edit files**).
+4. Open **Customize → Skills**.
+5. Select **+ → Create skill → Upload a skill**.
+6. Choose `fidelityflow-claude-ai.zip`.
+7. Enable FidelityFlow in your Skills list.
+8. Start a new chat and ask Claude to index or search a file that is available in its Skill execution workspace.
 
-1. Open **Customize → Plugins**.
-2. Choose the custom Plugin upload option.
-3. Upload `dist/fidelityflow-plugin.zip`.
-4. Enable FidelityFlow.
+**Important:** the Skill can only process files exposed to its managed execution workspace. Claude.ai does not guarantee Tesseract, language packs, OpenCV, or persistent cache storage in that environment. Use the local CLI for dependable OCR and persistent indexing.
 
-The Plugin includes the Skill. Keep **Code execution and file creation** enabled so its file-processing workflow can run. Plugin hooks and sub-agents are not active in ordinary web chat.
+### B. Upload the Plugin
 
-### Build the upload files yourself
+Use this route only if your Claude account exposes custom Plugin upload.
 
-Download or clone the repository, then run:
+1. Download **`fidelityflow-plugin.zip`** from the [latest GitHub Release](https://github.com/muhammadgamaleid/FidelityFlow/releases/latest).
+2. In Claude, open **Customize → Plugins**.
+3. Choose the custom Plugin upload option.
+4. Upload `fidelityflow-plugin.zip`.
+5. Review the plugin details and enable FidelityFlow.
+6. Keep **Code execution and file creation** enabled for the bundled Skill's file-processing workflow.
+
+The current Plugin package bundles the FidelityFlow Skill. It does not provide a hosted service, remote MCP server, or Claude.ai chat hooks. Plugin capabilities and availability are controlled by Anthropic and may differ by plan or organization policy.
+
+### Build the Skill and Plugin ZIP files yourself
+
+Requirements: Python 3.10 or newer.
 
 ```bash
+git clone https://github.com/muhammadgamaleid/FidelityFlow.git
+cd FidelityFlow
 python build_release.py --check
 ```
 
-This validates and creates both archives under `dist/`. Python 3.10 or newer is required.
+The two archives are created under `dist/`:
+- `dist/fidelityflow-claude-ai.zip`
+- `dist/fidelityflow-plugin.zip`
+
+The build validates the Skill metadata, required files, internal references, Plugin manifest, and ZIP integrity.
 
 ## Install on Claude Code
 
-From the repository directory:
+There are two separate pieces: the Skill (instructions Claude discovers) and the local runtime (CLI, hooks, and project memory).
+
+### Option A — Install the Skill and local runtime (recommended)
+
+Requirements:
+- Claude Code installed and authenticated.
+- Python 3.10+.
+- Git.
+
+1. Clone the repository:
+
+```bash
+git clone https://github.com/muhammadgamaleid/FidelityFlow.git
+cd FidelityFlow
+```
+
+2. Install the package:
 
 ```bash
 python -m pip install -e ".[pdf]"
+```
+
+3. Run diagnostics:
+
+```bash
 fidelityflow doctor
+fidelityflow --version
+```
+
+4. Install the Skill for your user:
+
+```bash
 python install.py --scope user
 ```
 
-To enable the optional output hooks:
+5. Restart Claude Code (or start a new session). The Skill is installed at `~/.claude/skills/fidelityflow`.
+
+6. Verify the CLI:
+
+```bash
+fidelityflow --help
+fidelityflow search --help
+```
+
+### Enable optional Claude Code hooks
+
+Hooks are deliberately **opt-in**. They can suppress a single byte-identical repeated result in narrowly supported cases, compact only recognized successful test output, archive original stdout locally, and provide PreCompact guidance.
+
+1. From the repository root, run:
 
 ```bash
 python install.py --scope user --enable-output-hook
 ```
 
-Hooks are opt-in. Review the settings backup and local archive behavior before enabling them, especially in sensitive projects.
+2. Restart Claude Code.
+3. Review `~/.claude/settings.json` and the installed hook scripts under `~/.claude/hooks/fidelityflow/`.
+4. Run a normal task and inspect the hook behavior before relying on it in a sensitive project.
 
-**Useful commands**
+The installer backs up an existing settings file before updating it. Hook archives and caches are local and unencrypted; protect them accordingly. To disable the hooks, remove only the FidelityFlow hook registrations from Claude settings. Do not replace your entire settings file.
+
+### Option B — Load the Plugin from a local checkout (development/testing)
+
+To test the Plugin manifest and bundled Skill without installing it permanently:
 
 ```bash
-fidelityflow ingest "docs/architecture.pdf"
-fidelityflow search --query "authentication flow" --top-k 5
-fidelityflow show --document DOCUMENT_ID --chunk 0
-fidelityflow doctor
+git clone https://github.com/muhammadgamaleid/FidelityFlow.git
+cd FidelityFlow
+claude --plugin-dir .
 ```
 
-For PDF extraction, install the `pdf` extra as shown above.
+This loads the local plugin for that Claude Code session. It is a development/test path; it does not install the Python runtime or enable the optional local hooks. Use Option A for the supported persistent Skill + CLI + hooks setup.
 
-### Optional local OCR for images and scanned PDFs
+### Install optional OCR and visual analysis
 
-OCR is available in the local CLI only. Install the Python extra, then install the Tesseract executable and the language data you need:
+OCR requires Python extras **and** the external Tesseract executable with the language data you need.
 
 ```bash
 python -m pip install -e ".[ocr,vision]"
@@ -114,88 +186,80 @@ fidelityflow ingest "scanned-report.pdf" --ocr --ocr-lang ara+eng
 fidelityflow ingest "screenshot.png" --ocr --ocr-lang ara+eng
 ```
 
-OCR is opt-in, processes only sparse-text PDF pages by default, and respects DPI/page limits. Claude.ai's managed Skill workspace does not guarantee Tesseract or its language packs, so this workflow is not promised in web chat. OCR extracts text and approximate layout evidence; it does not interpret chart values, arrow direction, or diagram semantics.
+On Ubuntu/Debian, for example:
 
-## What works today
+```bash
+sudo apt-get update
+sudo apt-get install -y tesseract-ocr tesseract-ocr-eng tesseract-ocr-ara
+```
 
-| Capability | Claude.ai Skill | Claude Code |
-|---|:---:|:---:|
-| Extract text, code, DOCX, XLSX, PPTX, and PDF text | Yes, when source files are exposed to the Skill workspace | Yes |
-| Local content-addressed cache | Workspace lifetime; persistence is not guaranteed | Persistent local cache |
-| Lexical search and bounded excerpt retrieval | Yes | Yes |
-| Code-aware identifier matching and symbol-aware chunk boundaries | Yes | Yes |
-| Line-preserving excerpts centered around query matches | Yes | Yes |
-| Source mapping for pages/slides/sheets/cells, OCR pixel regions, DOCX floating-picture anchors, and native PPTX picture/chart-frame bounds | Yes | Yes |
-| Optional local multi-pass OCR with confidence and line coordinates | Not guaranteed in Skill VM | Yes, with OCR dependencies and Tesseract language data |
-| Optional raster visual candidates (OpenCV) | Not guaranteed in Skill VM | Yes, with the separate `vision` extra; candidate shapes, approximate plot bounds, proximity-linked OCR labels, possible arrows, and tentative shape-to-shape flowchart links |
-| Exact repeated large `Read` suppression | — | Optional hook |
-| Exact repeated plain-text search and MCP results | — | Optional hook; one repeat only, with recovery read |
-| Narrow successful test-output compaction | — | Optional hook; original stdout archived locally |
-| PreCompact context handoff guidance | — | Optional hook; guides Claude's native compaction |
-| Evidence-backed project memory | — | Local SQLite |
+Use the equivalent package manager for your operating system. OCR is opt-in and respects page/DPI and image-size limits.
 
-**Still limited:** raster chart values and series are not reconstructed reliably from pixels; semantic flowchart interpretation, robust arrow topology, embedded Office-image OCR, model-based visual reasoning, audio/video processing, and independently validated end-to-end savings remain future work. The current vision pass emits conservative geometric candidates, not authoritative semantic conclusions.
+## CLI quick start
 
-Search is lexical, not semantic. Office extraction is text-oriented and does not fully reconstruct visual layout, charts, embedded objects, or spreadsheet calculation behavior.
+```bash
+# Inspect optional capabilities
+fidelityflow doctor
 
-## Practical ways to use fewer tokens
+# Index a document
+fidelityflow ingest "docs/architecture.pdf"
 
-These habits help even before enabling FidelityFlow:
+# Search for a focused question
+fidelityflow search --query "authentication flow" --top-k 5
 
-1. **Use Claude Projects for recurring reference material.** Keep stable documents in Project Knowledge instead of repeatedly attaching the same library.
-2. **Start a new chat for an unrelated task.** Do not carry old conversation history when it is no longer useful.
-3. **Keep project instructions focused.** Put task-specific procedures in Skills rather than repeating them in every prompt.
-4. **Disable MCP servers and connectors you do not use.** Tool definitions and tool results can both add context.
-5. **Ask for targeted reads.** Search for filenames, symbols, terms, or line ranges before loading large files.
-6. **In Claude Code, inspect `/context` and `/usage`.** Use `/clear` for a separate task and `/compact` when continuing the same task.
-7. **Keep the right reasoning effort.** Lower effort may suit routine tasks; do not reduce it blindly for architecture, security, or data-critical work.
+# Retrieve the full indexed chunk when needed
+fidelityflow show --document DOCUMENT_ID --chunk 0
 
-FidelityFlow does not silently change Claude's model, billing, thinking budget, prompt-cache policy, or initial web upload pipeline.
+# Index a directory
+fidelityflow ingest-dir "./research-library"
+
+# Inspect local project memory
+fflearn --help
+```
+
+For PDF text extraction, install the `pdf` extra. For image and scanned-PDF OCR, install `ocr` and optionally `vision`, then configure Tesseract and its language data.
+
+## What FidelityFlow does not do
+
+- It does not intercept Claude.ai's initial file-upload or internal document-parsing pipeline.
+- It does not make the first upload free or guarantee that a cached Skill workspace persists across chats.
+- It does not change Claude pricing, subscription limits, model choice, reasoning effort, prompt caching, or automatic compaction thresholds.
+- It does not perform semantic/vector search.
+- It does not reliably recover raster chart values, prove arrow direction, or infer diagram meaning.
+- It does not automatically OCR raster images embedded inside DOCX/PPTX.
+- It does not promise a token- or cost-saving percentage without controlled measurement.
 
 ## Measurement and quality
 
-A shorter tool result is not automatically a real saving. A fair evaluation counts:
+A shorter tool result is not automatically a net saving. Evaluate actual input/cache/output/thinking usage when available, extra tool calls and retries, latency, task correctness, evidence fidelity, retrieval recall, and output completeness.
 
-- Input, cache-creation, cache-read, output, and thinking tokens when exposed.
-- Skill instructions, extra calls, retries, and recovery reads.
-- Actual API cost when the user supplies the applicable model pricing.
-- Task correctness, evidence fidelity, retrieval accuracy, and output completeness.
-
-For a Claude Code JSONL transcript, inspect actual recorded usage:
+For a Claude Code JSONL transcript:
 
 ```bash
 python benchmarks/read_claude_usage.py "/path/to/session.jsonl"
 ```
 
-This reads usage fields present in the transcript. It does not estimate missing values or measure Claude.ai web-chat usage. Subscription usage limits are not the same as API dollar billing.
+The reader reports fields present in the transcript; it does not estimate missing usage or measure Claude.ai web-chat usage. Subscription usage limits are not equivalent to API dollar billing.
 
-## Roadmap
+## Documentation
 
-The current release already includes conservative duplicate-result filtering, successful test-output compaction, PreCompact handoff guidance, local OCR, and lexical file retrieval. The remaining work is deeper than these initial safeguards:
-
-1. **Visual understanding (in progress):** structured extraction of embedded Office chart types, titles, axes, legends, indexed cached data, and native diagram connector endpoints is implemented. Remaining work includes visual interpretation of raster charts/diagrams, arrow direction and semantic relationships, OCR-to-visual label association, and independent accuracy benchmarks.
-2. **Text and code retrieval:** semantic search, language-aware AST/LSP navigation, and stronger log and structured-document retrieval.
-3. **Tool and MCP processing:** schema-aware adapters, safe field projection, pagination-aware retrieval, and recoverable original results.
-4. **Session continuity:** structured checkpoints, memory lifecycle controls, contradiction handling, and supported cross-session recovery.
-5. **Benchmark suite:** reproducible A/B tasks, independent quality evaluation, full overhead accounting, and transparent reports.
-
-Features remain labelled as planned until implemented and tested. See [the engineering strategy](docs/CONSUMPTION-STRATEGY.md) for detailed priorities and acceptance criteria.
-
-## Privacy and limitations
-
-- Original files are never modified by the local indexer.
-- Local caches, project memory, and optional output archives may contain sensitive data and are **not encrypted** by FidelityFlow.
-- The local extraction and hook code makes no network calls.
-- Redaction is best-effort, not a guarantee.
-- A Claude.ai Skill cannot intercept the platform's initial attachment ingestion or guarantee that the first upload is free.
-- Skill-workspace cache persistence across unrelated chats or VM resets is not guaranteed.
-- Unknown, ambiguous, structured, failed, or sensitive tool output must pass through unchanged unless a format-specific adapter proves a safe transformation.
-
-## Project policies
-
-- [Contributing guide](CONTRIBUTING.md)
+- [Architecture](docs/ARCHITECTURE.md)
+- [File processing and source mapping](skills/fidelityflow/references/file-processing.md)
+- [Claude platform setup](skills/fidelityflow/references/platform-setup.md)
+- [Quality and safety policy](skills/fidelityflow/references/quality-policy.md)
+- [Consumption strategy and roadmap](docs/CONSUMPTION-STRATEGY.md)
+- [Changelog](CHANGELOG.md)
+- [Contributing](CONTRIBUTING.md)
 - [Security policy](SECURITY.md)
+
+## Privacy
+
+- Original source files are not modified by the local indexer.
+- Local caches, SQLite memory, and optional output archives may contain sensitive data and are not encrypted by FidelityFlow.
+- The local extraction and hook code makes no network calls.
+- Redaction is best-effort, not a guarantee. Never submit credentials or secrets.
+- Unknown, ambiguous, structured, failed, or sensitive output is passed through unchanged unless a format-specific rule safely handles it.
 
 ## License
 
-MIT — see [LICENSE](LICENSE).
+MIT. See [LICENSE](LICENSE).
