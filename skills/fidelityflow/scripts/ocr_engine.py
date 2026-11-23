@@ -376,6 +376,21 @@ def analyze_visual_structure(image, words: list[dict] | None = None, ocr_size=No
 
 
 
+def _rescale_ocr_words(words: list[dict], source_size, target_size) -> list[dict]:
+    source_width, source_height = source_size or target_size
+    target_width, target_height = target_size
+    scale_x = target_width / max(1, source_width)
+    scale_y = target_height / max(1, source_height)
+    return [
+        {**word,
+         "left": int(round(word["left"] * scale_x)),
+         "top": int(round(word["top"] * scale_y)),
+         "width": max(1, int(round(word["width"] * scale_x))),
+         "height": max(1, int(round(word["height"] * scale_y)))}
+        for word in words
+    ]
+
+
 def _format_result(result: dict, image, source: str) -> str:
     text = result["text"]
     lines = _layout_lines(result["words"])
