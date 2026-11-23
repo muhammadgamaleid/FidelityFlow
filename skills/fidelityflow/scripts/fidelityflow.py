@@ -494,6 +494,37 @@ def _shape_region_marker(shape: ET.Element, marker: str) -> str | None:
     )
 
 
+def _chart_plot_area_marker(archive: zipfile.ZipFile, member: str, object_id: str) -> str | None:
+    """Expose explicitly stored manual plot-area layout in normalized chart coordinates."""
+    try:
+        root = ET.fromstring(read_ooxml_xml_member(archive, member))
+    except (KeyError, ET.ParseError, ValueError):
+        return None
+    plot_area = next((node for node in root.iter() if local_name(node.tag) == "plotArea"), None)
+    layout = next((node for node in plot_area or [] if local_name(node.tag) == "layout"), None)
+    manual = next((node for node in layout or [] if local_name(node.tag) == "manualLayout"), None)
+    if manual is None:
+        return None
+    values = {}
+    for child in manual.iter():
+        name = local_name(child.tag)
+        if name in {"x", "y", "w", "h"}:
+            raw = child.attrib.get("val")
+            try:
+                value = float(raw)
+            except (TypeError, ValueError):
+                continue
+            if math.isfinite(value) and 0.0 <= value <= 1.0:
+                values[name] = value
+    if set(values) != {"x", "y", "w", "h"}:
+        return None
+    target = next((node.attrib.get("val") for node in manual
+                   if local_name(node.tag) == "layoutTarget"), "inner")
+    return (f"[CHART_PLOT_AREA id={object_id} x={values['x']:.8g} y={values['y']:.8g} "
+            f"w={values['w']:.8g} h={values['h']:.8g} target={target or 'inner'} "
+            "coordinate_space=chart_relative]")
+
+
 def parse_pptx(path: Path) -> tuple[str, list[str]]:
     notes = [
         "PPTX extraction preserves slide order, text, basic table content, shape alt text, speaker notes, and cached chart data.",
@@ -590,6 +621,10 @@ def parse_pptx(path: Path) -> tuple[str, list[str]]:
                         chart_rel = next((node.attrib.get("id") for node in shape.iter()
                                           if local_name(node.tag) == "chart" and node.attrib.get("id")), "")
                         chart_target = relationships.get(chart_rel, "")
+                        if chart_target and chart_target in names:
+                            plot_marker = _chart_plot_area_marker(archive, chart_target, non_visual.attrib.get("id", "?"))
+                            if plot_marker:
+                                output.append(plot_marker)
                         frame_marker = _shape_region_marker(shape, "CHART_REGION")
                         if frame_marker:
                             frame_marker = frame_marker.replace("[CHART_REGION ", "[CHART_REGION ", 1)
@@ -1072,6 +1107,18 @@ def build_source_map(
                 "coordinate_space": "slide_emu", "slide_dimensions": current_slide_dimensions,
             }))
             continue
+        plot_match = re.match(
+            r"^\[CHART_PLOT_AREA id=(\S+) x=([0-9.eE+-]+) y=([0-9.eE+-]+) w=([0-9.eE+-]+) h=([0-9.eE+-]+) target=(\S+) coordinate_space=chart_relative\]$",
+            marker,
+        )
+        if plot_match:
+            region_events.append((line_start, {
+                "kind": "chart_plot_area", "object_id": plot_match.group(1),
+                "bbox": {"x": float(plot_match.group(2)), "y": float(plot_match.group(3)),
+                         "width": float(plot_match.group(4)), "height": float(plot_match.group(5))},
+                "layout_target": plot_match.group(6), "coordinate_space": "chart_relative",
+            }))
+            continue
         docx_match = re.match(r"^\[DOCX_IMAGE_REGION (.+)\]$", marker)
         if docx_match:
             fields = dict(re.findall(r"(\w+)=([^ ]+)", docx_match.group(1)))
@@ -1204,6 +1251,10 @@ def format_source_location(location: dict | None) -> str:
             elif region.get("kind") in {"embedded_image", "chart_frame"}:
                 rendered.append(f"{region.get('kind')}#{region.get('object_id')} bbox(EMU)="
                                 f"{bbox.get('x')},{bbox.get('y')},{bbox.get('width')},{bbox.get('height')}")
+            elif region.get("kind") == "chart_plot_area":
+                rendered.append(f"chart_plot#{region.get('object_id')} bbox(relative)="
+                                f"{bbox.get('x')},{bbox.get('y')},{bbox.get('width')},{bbox.get('height')} "
+                                f"target={region.get('layout_target')}")
             elif region.get("kind") == "docx_picture":
                 anchor = region.get("anchor", {})
                 rendered.append(f"DOCX image#{region.get('object_id')} {region.get('layout')} "
