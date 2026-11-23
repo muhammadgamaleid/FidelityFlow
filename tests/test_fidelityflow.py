@@ -952,6 +952,50 @@ class SourceMappingTests(unittest.TestCase):
         self.assertIn("image#7 bbox(EMU)=100000,200000,3000000,1800000",
                       self.module.format_source_location(mapped[0]))
 
+    def test_source_map_tracks_docx_floating_picture_anchor_and_relationship(self):
+        source = (
+            "## Document body\\nParagraph text\\n"
+            "[DOCX_IMAGE_REGION id=9 cx=914400 cy=457200 layout=floating rel=rId5 target=media/image2.png "
+            "x=1200 relative_x=page y=2400 relative_y=margin]\\n"
+        )
+        mapped, summary = self.module.build_source_map(source, ".docx", max_chars=7000)
+        region = mapped[0]["regions"][0]
+        self.assertEqual(region["kind"], "docx_picture")
+        self.assertEqual(region["object_id"], "9")
+        self.assertEqual(region["layout"], "floating")
+        self.assertEqual(region["anchor"]["relative_x"], "page")
+        self.assertEqual(region["media_target"], "media/image2.png")
+
+    def test_docx_drawing_marker_handles_inline_and_floating_extent(self):
+        xml = """<w:p xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"
+          xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing"
+          xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"
+          xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
+          <w:r><w:drawing><wp:anchor><wp:positionH relativeFrom="page"><wp:posOffset>1200</wp:posOffset></wp:positionH>
+          <wp:positionV relativeFrom="margin"><wp:align>center</wp:align></wp:positionV>
+          <wp:extent cx="914400" cy="457200"/><wp:docPr id="9" name="Picture 2"/>
+          <a:blip r:embed="rId5"/></wp:anchor></w:drawing></w:r></w:p>"""
+        paragraph = ET.fromstring(xml)
+        markers = self.module._docx_drawing_markers(paragraph, {"rId5": "word/media/image2.png"})
+        self.assertEqual(len(markers), 1)
+        self.assertIn("layout=floating", markers[0])
+        self.assertIn("x=1200", markers[0])
+        self.assertIn("y=center", markers[0])
+        self.assertIn("target=word/media/image2.png", markers[0])
+
+    def test_source_map_tracks_chart_frame_and_office_object_identity(self):
+        source = (
+            "# Slide 1\\n[SLIDE_DIMENSIONS cx=12192000 cy=6858000 coordinate_space=EMU]\\n"
+            "[CHART_REGION id=14 x=100 y=200 cx=3000 cy=1800 coordinate_space=slide_emu]\\n"
+            "[OFFICE_OBJECT id=14 name=Chart_1 kind=graphicFrame]\\n"
+        )
+        mapped, summary = self.module.build_source_map(source, ".pptx", max_chars=7000)
+        kinds = {region["kind"] for region in mapped[0]["regions"]}
+        self.assertIn("chart_frame", kinds)
+        self.assertIn("office_object", kinds)
+        self.assertIn("chart_frame#14 bbox(EMU)=100,200,3000,1800",
+                      self.module.format_source_location(mapped[0]))
+
     def test_source_map_summary_does_not_claim_visual_geometry(self):
         source = "# Slide 1\n[IMAGE: no alternative text provided]\n"
         mapped, summary = self.module.build_source_map(source, ".pptx")
