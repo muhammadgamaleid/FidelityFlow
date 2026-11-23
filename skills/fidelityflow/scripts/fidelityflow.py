@@ -501,8 +501,12 @@ def _chart_plot_area_marker(archive: zipfile.ZipFile, member: str, object_id: st
     except (KeyError, ET.ParseError, ValueError):
         return None
     plot_area = next((node for node in root.iter() if local_name(node.tag) == "plotArea"), None)
-    layout = next((node for node in plot_area or [] if local_name(node.tag) == "layout"), None)
-    manual = next((node for node in layout or [] if local_name(node.tag) == "manualLayout"), None)
+    if plot_area is None:
+        return None
+    layout = next((node for node in plot_area.iter() if local_name(node.tag) == "layout"), None)
+    if layout is None:
+        return None
+    manual = next((node for node in layout.iter() if local_name(node.tag) == "manualLayout"), None)
     if manual is None:
         return None
     values = {}
