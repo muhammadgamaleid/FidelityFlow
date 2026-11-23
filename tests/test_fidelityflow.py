@@ -313,8 +313,8 @@ class FidelityFlowCliTests(unittest.TestCase):
     def test_source_map_retains_diagram_connector_endpoints(self):
         module = load_module(CLI, "fidelityflow_connector_source_map_test")
         source = (
-            "# Slide 1\\n"
-            "[DIAGRAM_CONNECTOR id=7 name=Arrow_1 start=2:0 end=3:1]\\n"
+            "# Slide 1\n"
+            "[DIAGRAM_CONNECTOR id=7 name=Arrow_1 start=2:0 end=3:1]\n"
         )
         mapped, summary = module.build_source_map(source, ".pptx", max_chars=7000)
         connector = next(region for region in mapped[0]["regions"] if region["kind"] == "diagram_connector")
@@ -325,11 +325,11 @@ class FidelityFlowCliTests(unittest.TestCase):
     def test_source_map_retains_raster_visual_objects_charts_and_relations(self):
         module = load_module(CLI, "fidelityflow_raster_source_map_test")
         source = (
-            "[IMAGE: diagram.png]\\n"
-            "[IMAGE_DIMENSIONS width=640 height=420 coordinate_space=pixels]\\n"
-            "[VISION_OBJECT id=1 type=rectangle x=100 y=120 w=160 h=80 confidence=0.72 label=Start coordinate_space=pixels]\\n"
-            "[VISION_CHART type=plot_candidate confidence=0.55 coordinate_space=pixels]\\n"
-            "[VISION_RELATION id=1 type=arrow_candidate x1=260 y1=160 x2=340 y2=160 confidence=0.45 coordinate_space=pixels]\\n"
+            "[IMAGE: diagram.png]\n"
+            "[IMAGE_DIMENSIONS width=640 height=420 coordinate_space=pixels]\n"
+            "[VISION_OBJECT id=1 type=rectangle x=100 y=120 w=160 h=80 confidence=0.72 label=Start coordinate_space=pixels]\n"
+            "[VISION_CHART type=plot_candidate confidence=0.55 coordinate_space=pixels]\n"
+            "[VISION_RELATION id=1 type=arrow_candidate x1=260 y1=160 x2=340 y2=160 confidence=0.45 coordinate_space=pixels]\n"
         )
         mapped, summary = module.build_source_map(source, ".png", max_chars=7000)
         kinds = {region["kind"] for region in mapped[0]["regions"]}
