@@ -25,7 +25,7 @@ class RealOCREndToEndTests(unittest.TestCase):
         try:
             from PIL import Image, ImageDraw, ImageFont
             import pytesseract
-            import fitz
+            import pymupdf as fitz
             import cv2
         except ImportError as exc:
             raise unittest.SkipTest(f"Optional OCR/vision dependency missing: {exc}")
