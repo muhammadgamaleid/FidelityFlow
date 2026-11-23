@@ -39,17 +39,17 @@ class RealOCREndToEndTests(unittest.TestCase):
         cls.engine = load_engine()
 
     def make_sample_image(self, path: Path):
-        image = self.Image.new("RGB", (1800, 500), "white")
+        image = self.Image.new("RGB", (2000, 600), "white")
         draw = self.ImageDraw.Draw(image)
-        font_path = "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
+        font_path = "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"
         try:
-            font = self.ImageFont.truetype(font_path, 88)
+            font = self.ImageFont.truetype(font_path, 100)
         except OSError:
             font = self.ImageFont.load_default()
-        draw.text((80, 130), "FIDELITYFLOW OCR 12345", fill="black", font=font)
-        # Add axis-like geometry to exercise the optional visual pass.
-        draw.line((100, 400, 1650, 400), fill="black", width=5)
-        draw.line((100, 80, 100, 400), fill="black", width=5)
+        draw.text((180, 120), "Fidelity Flow OCR 12345", fill="black", font=font)
+        # Add separated axis-like geometry to exercise the optional visual pass.
+        draw.line((50, 540, 1900, 540), fill="black", width=5)
+        draw.line((50, 70, 50, 540), fill="black", width=5)
         image.save(path)
         return image
 
