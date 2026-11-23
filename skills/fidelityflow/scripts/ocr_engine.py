@@ -320,6 +320,7 @@ def analyze_visual_structure(image, words: list[dict] | None = None, ocr_size=No
             f"{diagonal} diagonal line segments; {len(objects)} candidate shapes."
         )
         for index, item in enumerate(objects, start=1):
+            item["id"] = index
             x, y, w, h = (int(round(item[key] * scale)) for key, scale in
                           (("x", scale_x), ("y", scale_y), ("w", scale_x), ("h", scale_y)))
             right, bottom = x + w, y + h
@@ -379,6 +380,47 @@ def analyze_visual_structure(image, words: list[dict] | None = None, ocr_size=No
             evidence.append(
                 f"[VISION_RELATION id={index} type=arrow_candidate x1={sx} y1={sy} x2={tx} y2={ty} "
                 "confidence=0.45 coordinate_space=pixels]"
+            )
+        # Link line endpoints to detected flowchart shapes only when both ends
+        # land close to distinct boxes/diamonds/ellipses. Direction stays tentative.
+        flow_shapes = [item for item in objects if item["kind"] in {"rectangle", "diamond", "ellipse"}]
+
+        def nearest_flow_shape(point):
+            px0, py0 = point
+            candidates = []
+            for shape in flow_shapes:
+                dx = max(shape["x"] - px0, 0, px0 - (shape["x"] + shape["w"]))
+                dy = max(shape["y"] - py0, 0, py0 - (shape["y"] + shape["h"]))
+                candidates.append((math.hypot(dx, dy), shape))
+            return min(candidates, key=lambda value: value[0]) if candidates else (float("inf"), None)
+
+        shape_connections = []
+        for line in lines:
+            x1, y1, x2, y2, _ = line
+            if math.hypot(x2 - x1, y2 - y1) < max(30, min(gray.shape) * 0.06):
+                continue
+            d1, shape1 = nearest_flow_shape((x1, y1))
+            d2, shape2 = nearest_flow_shape((x2, y2))
+            threshold = max(18, min(gray.shape) * 0.025)
+            if shape1 is None or shape2 is None or shape1["id"] == shape2["id"] or d1 > threshold or d2 > threshold:
+                continue
+            arrow_at_end = any(
+                math.hypot((tri["x"] + tri["w"] / 2) - x2, (tri["y"] + tri["h"] / 2) - y2)
+                <= max(18, min(tri["w"], tri["h"]) * 1.8) for tri in triangles
+            )
+            arrow_at_start = any(
+                math.hypot((tri["x"] + tri["w"] / 2) - x1, (tri["y"] + tri["h"] / 2) - y1)
+                <= max(18, min(tri["w"], tri["h"]) * 1.8) for tri in triangles
+            )
+            if arrow_at_start and not arrow_at_end:
+                shape1, shape2 = shape2, shape1
+            direction = "arrow_candidate" if arrow_at_start or arrow_at_end else "undirected_candidate"
+            shape_connections.append((shape1, shape2, direction))
+        for index, (source_shape, target_shape, direction) in enumerate(shape_connections[:40], start=1):
+            confidence = 0.58 if direction == "arrow_candidate" else 0.42
+            evidence.append(
+                f"[VISION_SHAPE_CONNECTION id={index} from_shape={source_shape['id']} "
+                f"to_shape={target_shape['id']} direction={direction} confidence={confidence:.2f}]"
             )
         if not objects and not lines:
             evidence.append("No stable geometric primitives were detected.")
