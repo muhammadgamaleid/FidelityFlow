@@ -18,6 +18,12 @@ class ReleaseBuildTests(unittest.TestCase):
         self.assertIn('version = "0.6.0"', pyproject)
         self.assertEqual(manifest["version"], fidelityflow.__version__)
 
+    def test_marketplace_manifest_points_to_versioned_plugin(self):
+        marketplace = build_release.validate_marketplace_source()
+        self.assertEqual(marketplace["name"], "fidelityflow")
+        self.assertEqual(marketplace["plugins"][0]["source"], "./")
+        self.assertEqual(marketplace["plugins"][0]["version"], "0.6.0")
+
     def test_skill_metadata_is_valid(self):
         name, description = build_release._skill_metadata()
         self.assertEqual(name, "fidelityflow")
