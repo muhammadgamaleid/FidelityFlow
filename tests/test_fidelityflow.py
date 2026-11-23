@@ -840,7 +840,7 @@ class UnifiedPackageCliTests(unittest.TestCase):
             capture_output=True, text=True, timeout=10,
         )
         self.assertEqual(version.returncode, 0, version.stderr)
-        self.assertIn("0.5.0", version.stdout)
+        self.assertIn("0.6.0", version.stdout)
 
 
 class InstallerTests(unittest.TestCase):
