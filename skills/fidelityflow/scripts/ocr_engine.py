@@ -338,7 +338,19 @@ def analyze_visual_structure(image, words: list[dict] | None = None, ocr_size=No
             diagonal >= 1 or any(item["kind"] == "rectangle" for item in objects)
         )
         if chart_candidate:
-            evidence.append("[VISION_CHART type=plot_candidate confidence=0.55 coordinate_space=pixels]")
+            horizontal_lines = [line for line in lines if line[4] == "horizontal"]
+            vertical_lines = [line for line in lines if line[4] == "vertical"]
+            plot_x = min(min(line[0], line[2]) for line in vertical_lines)
+            plot_y = min(min(line[1], line[3]) for line in horizontal_lines)
+            plot_right = max(max(line[0], line[2]) for line in horizontal_lines)
+            plot_bottom = max(max(line[1], line[3]) for line in vertical_lines)
+            px, py = int(round(plot_x * scale_x)), int(round(plot_y * scale_y))
+            pw = max(1, int(round((plot_right - plot_x) * scale_x)))
+            ph = max(1, int(round((plot_bottom - plot_y) * scale_y)))
+            evidence.append(
+                f"[VISION_CHART type=plot_candidate x={px} y={py} w={pw} h={ph} "
+                "confidence=0.55 coordinate_space=pixels]"
+            )
             evidence.append("Chart candidate: intersecting axes/grid and plotted marks detected; values and series are not inferred from pixels.")
         # Detect arrowheads as triangular contours and associate them with the nearest line endpoint.
         triangles = [item for item in objects if item["kind"] == "triangle"]
