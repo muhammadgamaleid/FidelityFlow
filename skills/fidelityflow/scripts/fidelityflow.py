@@ -813,11 +813,13 @@ def split_chunks(
         index += 1
     assert "".join(chunk["text"] for chunk in chunks) == text
     return chunks
-def build_source_map(text: str, source_suffix: str | None = None) -> tuple[list[dict], dict]:
-    """Build deterministic, text-offset-based source locations for extracted content.
+def build_source_map(
+    text: str, source_suffix: str | None = None, max_chars: int = CHUNK_CHARS
+) -> tuple[list[dict], dict]:
+    """Map extracted chunks to explicit page, slide, sheet, table, image, and chart markers.
 
-    Locations are inferred only from explicit extractor markers and cell references.
-    They are navigational hints, not claims about visual coordinates or semantic layout.
+    Mapping is based on extractor-emitted text markers and cell references only.
+    It is navigational provenance, not reconstructed visual geometry.
     """
     suffix = (source_suffix or "").casefold()
     lines = []
@@ -829,12 +831,11 @@ def build_source_map(text: str, source_suffix: str | None = None) -> tuple[list[
 
     events: list[tuple[int, dict]] = []
     counters = Counter()
-    context: dict = {"kind": "document"}
+    active: dict = {"kind": "document"}
 
     for start, end, line_number, line in lines:
         stripped = line.strip()
         location = None
-
         match = re.match(r"^\[PAGE\s+(\d+)\]$", stripped, re.IGNORECASE)
         if match:
             location = {"kind": "page", "page": int(match.group(1))}
@@ -856,78 +857,88 @@ def build_source_map(text: str, source_suffix: str | None = None) -> tuple[list[
                     match = re.match(r"^###\s*Chart:\s*(.+?)\s*$", stripped, re.IGNORECASE)
                     if match:
                         counters["chart"] += 1
-                        location = {"kind": "chart", "chart": match.group(1), "chart_index": counters["chart"]}
-
+                        location = {
+                            "kind": "chart", "chart": match.group(1),
+                            "chart_index": counters["chart"],
+                        }
         if location:
-            context = dict(location)
-            context["line"] = line_number
-            events.append((start, context))
+            location["line"] = line_number
+            active = location
+            events.append((start, dict(location)))
 
-        if suffix == ".xlsx" or context.get("kind") == "sheet":
+        if suffix == ".xlsx" or active.get("kind") == "sheet":
             refs = re.findall(r"(?<![A-Za-z0-9_])([A-Z]{1,3}\d+)\s*(?==|formula=)", line)
             if refs:
-                cell_event = dict(context)
-                cell_event["cell_refs"] = list(dict.fromkeys(refs))[:50]
-                cell_event["line"] = line_number
-                events.append((start, cell_event))
+                cell_location = dict(active)
+                cell_location["cell_refs"] = list(dict.fromkeys(refs))[:50]
+                cell_location["line"] = line_number
+                events.append((start, cell_location))
 
     events.sort(key=lambda item: item[0])
-    locations = []
-    event_index = 0
-    active = {"kind": "document"}
-    for chunk in split_chunks(text, max_chars=max(500, min(CHUNK_CHARS, len(text) or CHUNK_CHARS)),
-                              source_suffix=source_suffix):
-        while event_index < len(events) and events[event_index][0] < chunk["char_end"]:
-            event_offset, event_location = events[event_index]
-            if event_offset < chunk["char_start"] or event_offset >= chunk["char_start"]:
-                active = {key: value for key, value in event_location.items() if key != "cell_refs"}
-            event_index += 1
-        chunk_events = [
+    chunks = split_chunks(text, max_chars=max_chars, source_suffix=source_suffix)
+    mapped = []
+    for chunk in chunks:
+        prior = [event for event_offset, event in events if event_offset < chunk["char_start"]]
+        current = [
             event for event_offset, event in events
             if chunk["char_start"] <= event_offset < chunk["char_end"]
-            and event.get("cell_refs")
         ]
-        location = dict(active)
+        units = []
+        base = prior[-1][1] if prior else {"kind": "document"}
+        units.append({key: value for key, value in base.items() if key != "cell_refs"})
+        for _, event in current:
+            unit = {key: value for key, value in event.items() if key != "cell_refs"}
+            if unit not in units:
+                units.append(unit)
         cell_refs = []
-        for event in chunk_events:
+        for _, event in current:
             cell_refs.extend(event.get("cell_refs", []))
+        location = {
+            "kind": units[-1].get("kind", "document") if len(units) == 1 else "multiple",
+            "locations": units,
+            "line_start": chunk["line_start"],
+            "line_end": chunk["line_end"],
+        }
         if cell_refs:
             location["cell_refs"] = list(dict.fromkeys(cell_refs))[:50]
-        location["line_start"] = chunk["line_start"]
-        location["line_end"] = chunk["line_end"]
-        locations.append(location)
+        mapped.append(location)
 
     summary = {
         "version": 1,
-        "chunk_count": len(locations),
-        "located_chunks": sum(1 for item in locations if item.get("kind") != "document"),
-        "pages": sorted({item["page"] for item in locations if "page" in item}),
-        "slides": sorted({item["slide"] for item in locations if "slide" in item}),
-        "sheets": sorted({item["sheet"] for item in locations if "sheet" in item}),
+        "chunk_count": len(mapped),
+        "located_chunks": sum(
+            1 for item in mapped
+            if any(unit.get("kind") != "document" for unit in item["locations"])
+        ),
+        "pages": sorted({unit["page"] for item in mapped for unit in item["locations"] if "page" in unit}),
+        "slides": sorted({unit["slide"] for item in mapped for unit in item["locations"] if "slide" in unit}),
+        "sheets": sorted({unit["sheet"] for item in mapped for unit in item["locations"] if "sheet" in unit}),
         "tables": counters["table"],
         "images": counters["image"],
         "charts": counters["chart"],
     }
-    return locations, summary
-
+    return mapped, summary
 
 def format_source_location(location: dict | None) -> str:
-    """Render compact, human-readable provenance without inventing missing coordinates."""
+    """Render compact provenance for every source unit represented in a chunk."""
     if not isinstance(location, dict):
         return "document"
-    parts = []
-    for key, label in (("page", "page"), ("slide", "slide"), ("sheet", "sheet"),
-                       ("table", "table"), ("image", "image"), ("chart", "chart")):
-        if location.get(key) is not None:
-            parts.append(f"{label}={location[key]}")
+    rendered = []
+    units = location.get("locations") or [location]
+    for unit in units:
+        parts = []
+        for key, label in (("page", "page"), ("slide", "slide"), ("sheet", "sheet"),
+                           ("table", "table"), ("image", "image"), ("chart", "chart")):
+            if unit.get(key) is not None:
+                parts.append(f"{label}={unit[key]}")
+        if not parts:
+            parts.append(str(unit.get("kind", "document")))
+        rendered.append(", ".join(parts))
     if location.get("cell_refs"):
         refs = location["cell_refs"]
-        parts.append("cells=" + ",".join(refs[:12]) + ("…" if len(refs) > 12 else ""))
-    if not parts:
-        parts.append(str(location.get("kind", "document")))
-    parts.append(f"lines={location.get('line_start', '?')}-{location.get('line_end', '?')}")
-    return " | ".join(parts)
-
+        rendered.append("cells=" + ",".join(refs[:12]) + ("…" if len(refs) > 12 else ""))
+    rendered.append(f"lines={location.get('line_start', '?')}-{location.get('line_end', '?')}")
+    return " | ".join(dict.fromkeys(rendered))
 
 def default_cache_dir(value: str | None) -> Path:
     return Path(value).expanduser().resolve() if value else DEFAULT_CACHE.resolve()
@@ -1030,7 +1041,7 @@ def cmd_ingest(args: argparse.Namespace) -> int:
         print(f"Extraction failed: extractor mismatch ({extractor} != {extractor_expected})", file=sys.stderr)
         return 3
     chunks = split_chunks(text, args.chunk_chars, source_suffix=normalized_suffix(path))
-    source_locations, source_map_summary = build_source_map(text, normalized_suffix(path))
+    source_locations, source_map_summary = build_source_map(text, normalized_suffix(path), args.chunk_chars)
     for chunk, location in zip(chunks, source_locations):
         chunk["source_location"] = location
     atomic_write_text(doc_dir / "content.txt", text)
