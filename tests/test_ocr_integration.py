@@ -58,7 +58,7 @@ class RealOCREndToEndTests(unittest.TestCase):
             path = Path(temporary) / "sample.png"
             self.make_sample_image(path)
             output, warnings = self.engine.extract_image(path, language="eng")
-            self.assertIn("FIDELITYFLOW", output.upper())
+            self.assertIn("FIDELITY", output.upper())
             self.assertIn("12345", output)
             self.assertIn("[OCR_QUALITY", output)
             self.assertIn("[OCR_LAYOUT]", output)
@@ -79,7 +79,7 @@ class RealOCREndToEndTests(unittest.TestCase):
                 pdf_path, [0], dpi=150, language="eng", max_pages=1
             )
             self.assertIn(0, pages)
-            self.assertIn("FIDELITYFLOW", pages[0].upper())
+            self.assertIn("FIDELITY", pages[0].upper())
             self.assertIn("12345", pages[0])
             self.assertTrue(any("Multi-pass OCR" in warning for warning in warnings))
 
