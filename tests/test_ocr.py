@@ -115,7 +115,7 @@ class OptionalOCRTests(unittest.TestCase):
             self.skipTest("Pillow is an optional OCR dependency")
         engine = load_module(OCR_PATH, "fidelityflow_ocr_preprocess_test")
         source = Image.new("RGB", (500, 300), "white")
-        variants = engine._preprocess_variants(source, ImageOps, ImageEnhance, ImageFilter)
+        variants = engine._preprocess_variants(source, Image, ImageOps, ImageEnhance, ImageFilter)
         self.assertEqual([name for name, _ in variants], ["contrast", "sharp", "threshold"])
         self.assertTrue(all(image.mode == "L" for _, image in variants))
         self.assertTrue(all(image.width <= 2200 and image.height <= 2200 for _, image in variants))
