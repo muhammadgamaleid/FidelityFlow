@@ -20,6 +20,30 @@ An extracted index is not a replacement for the source. Retrieve the original pa
 
 Office ZIP/XML input is subject to archive-member, aggregate-size, entry-count, and compression-ratio safety limits. Legacy .doc, .xls, and .ppt formats are not supported.
 
+## Source mapping and traceability
+
+Each indexed chunk now carries structured source-location metadata alongside its character offsets, line range, and content hash. The mapping is derived from the format-specific markers already emitted by the extractors; it does not alter extracted text or the original file.
+
+Supported navigation hints:
+
+| Source format | Location metadata |
+|---|---|
+| PDF | Page number, including pages that received OCR |
+| PPTX | Slide number, table/image markers, chart identifier when cached chart data is present |
+| XLSX | Worksheet name and cell references present in the chunk; chart identifier when cached chart data is present |
+| DOCX | Table sequence markers and document line range |
+| Standalone OCR images | Image-level source identity |
+| Other text formats | Document identity and line range |
+
+The manifest includes a compact `source_map` summary (located chunk count and discovered page/slide/sheet/table/image/chart identifiers). Search results and `show` display the mapped source location so a retrieved passage can be traced back to its originating part of the file.
+
+Important boundaries:
+- A chunk can span more than one page, slide, or other marked region; all explicit regions represented in that chunk are retained.
+- XLSX cell references are recorded only when the extractor emitted them in the chunk.
+- Image mapping identifies the image source or an extracted image marker; it does not claim pixel-accurate OCR boxes or semantic understanding of the image.
+- DOCX table numbering and PPTX image numbering are extraction-order identifiers, not native Office object IDs.
+- These are navigation hints, not reconstructed page geometry, exact visual coordinates, or a guarantee that every source element was extractable. Always verify consequential content against the original.
+
 ## Optional OCR
 
 OCR is local, opt-in, and never runs unless the user supplies `--ocr`. Install the Python dependencies:
