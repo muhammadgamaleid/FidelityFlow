@@ -26,7 +26,28 @@ class OptionalOCRTests(unittest.TestCase):
         cli = load_module(CLI_PATH, "fidelityflow_ocr_cli_test")
         image = Path("example.png")
         self.assertIsNone(cli.expected_extractor(image, ocr=False))
-        self.assertEqual(cli.expected_extractor(image, ocr=True), "image-ocr-tesseract-v2")
+        self.assertEqual(cli.expected_extractor(image, ocr=True), "image-ocr-tesseract-v3")
+
+    def test_visual_analyzer_detects_shape_chart_candidate_and_nearby_ocr_label(self):
+        try:
+            import cv2  # noqa: F401
+            from PIL import Image, ImageDraw
+        except ImportError:
+            self.skipTest("Optional vision dependencies are not installed")
+        engine = load_module(OCR_PATH, "fidelityflow_visual_analyzer_test")
+        image = Image.new("RGB", (640, 420), "white")
+        draw = ImageDraw.Draw(image)
+        draw.line((80, 330, 560, 330), fill="black", width=4)
+        draw.line((100, 40, 100, 350), fill="black", width=4)
+        draw.rectangle((180, 180, 240, 330), outline="black", width=4)
+        draw.line((260, 270, 360, 190), fill="black", width=4)
+        words = [{"text": "Revenue", "confidence": 92, "left": 175, "top": 155,
+                  "width": 65, "height": 18}]
+        result = engine.analyze_visual_structure(image, words, image.size)
+        joined = "\\n".join(result)
+        self.assertTrue(any("[VISION_OBJECT" in line for line in result), joined)
+        self.assertIn("[VISION_CHART type=plot_candidate", joined)
+        self.assertIn("label=Revenue", joined)
 
     def test_image_ocr_enforces_size_limit_before_loading_dependencies(self):
         engine = load_module(OCR_PATH, "fidelityflow_ocr_engine_size_test")
