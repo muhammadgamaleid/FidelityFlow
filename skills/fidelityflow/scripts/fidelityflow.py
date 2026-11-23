@@ -625,14 +625,14 @@ def parse_pptx(path: Path) -> tuple[str, list[str]]:
                         chart_rel = next((node.attrib.get("id") for node in shape.iter()
                                           if local_name(node.tag) == "chart" and node.attrib.get("id")), "")
                         chart_target = relationships.get(chart_rel, "")
-                        if chart_target and chart_target in names:
-                            plot_marker = _chart_plot_area_marker(archive, chart_target, non_visual.attrib.get("id", "?"))
-                            if plot_marker:
-                                output.append(plot_marker)
-                        frame_marker = _shape_region_marker(shape, "CHART_REGION")
-                        if frame_marker:
-                            frame_marker = frame_marker.replace("[CHART_REGION ", "[CHART_REGION ", 1)
-                            output.append(frame_marker)
+                        if chart_rel:
+                            if chart_target and chart_target in names:
+                                plot_marker = _chart_plot_area_marker(archive, chart_target, non_visual.attrib.get("id", "?"))
+                                if plot_marker:
+                                    output.append(plot_marker)
+                            frame_marker = _shape_region_marker(shape, "CHART_REGION")
+                            if frame_marker:
+                                output.append(frame_marker)
                         object_name = re.sub(r"[^A-Za-z0-9_.-]+", "_", non_visual.attrib.get("name", "unnamed"))
                         output.append(f"[OFFICE_OBJECT id={non_visual.attrib.get('id', '?')} name={object_name} kind=graphicFrame]")
                         if chart_rel:
