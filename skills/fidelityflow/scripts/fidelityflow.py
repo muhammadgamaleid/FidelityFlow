@@ -25,7 +25,7 @@ import xml.etree.ElementTree as ET
 from datetime import datetime, timezone
 from collections import Counter
 
-VERSION = "0.6.0"  # Structured source locations for pages, sheets, slides, tables, and images.
+VERSION = "0.7.0"  # Structured source maps plus heuristic raster chart/diagram analysis.
 DEFAULT_CACHE = Path.cwd() / ".fidelityflow" / "cache"
 DEFAULT_ARCHIVE = Path.cwd() / ".fidelityflow" / "archive"
 CHUNK_CHARS = 7000
@@ -1222,6 +1222,44 @@ def build_source_map(
             region["coordinate_space"] = "word_anchor_relative" if fields.get("layout") == "floating" else "inline_extent"
             region_events.append((line_start, region))
             continue
+        vision_object = re.match(
+            r"^\[VISION_OBJECT id=(\S+) type=(\S+) x=(\d+) y=(\d+) w=(\d+) h=(\d+) confidence=([0-9.]+) label=(\S+) coordinate_space=pixels\]$",
+            marker,
+        )
+        if vision_object:
+            region_events.append((line_start, {
+                "kind": "visual_shape", "object_id": vision_object.group(1),
+                "shape_type": vision_object.group(2),
+                "bbox": {"x": int(vision_object.group(3)), "y": int(vision_object.group(4)),
+                         "width": int(vision_object.group(5)), "height": int(vision_object.group(6))},
+                "confidence": float(vision_object.group(7)),
+                "ocr_label": None if vision_object.group(8) == "none" else vision_object.group(8),
+                "coordinate_space": "pixels",
+            }))
+            continue
+        vision_chart = re.match(
+            r"^\[VISION_CHART type=(\S+) confidence=([0-9.]+) coordinate_space=pixels\]$",
+            marker,
+        )
+        if vision_chart:
+            region_events.append((line_start, {
+                "kind": "visual_chart_candidate", "chart_type": vision_chart.group(1),
+                "confidence": float(vision_chart.group(2)), "coordinate_space": "pixels",
+            }))
+            continue
+        vision_relation = re.match(
+            r"^\[VISION_RELATION id=(\S+) type=(\S+) x1=(\d+) y1=(\d+) x2=(\d+) y2=(\d+) confidence=([0-9.]+) coordinate_space=pixels\]$",
+            marker,
+        )
+        if vision_relation:
+            region_events.append((line_start, {
+                "kind": "visual_relation_candidate", "object_id": vision_relation.group(1),
+                "relation_type": vision_relation.group(2),
+                "start": {"x": int(vision_relation.group(3)), "y": int(vision_relation.group(4))},
+                "end": {"x": int(vision_relation.group(5)), "y": int(vision_relation.group(6))},
+                "confidence": float(vision_relation.group(7)), "coordinate_space": "pixels",
+            }))
+            continue
         connector_match = re.match(
             r"^\[DIAGRAM_CONNECTOR id=(\S+) name=(\S+) start=(\S+) end=(\S+)\]$", marker
         )
@@ -1356,6 +1394,12 @@ def format_source_location(location: dict | None) -> str:
                 rendered.append(f"Office {region.get('object_type')}#{region.get('object_id')} {region.get('name')}")
             elif region.get("kind") == "diagram_connector":
                 rendered.append(f"connector#{region.get('object_id')} {region.get('start')} -> {region.get('end')}")
+            elif region.get("kind") == "visual_shape":
+                rendered.append(f"{region.get('shape_type')}#{region.get('object_id')} bbox={bbox.get('x')},{bbox.get('y')},{bbox.get('width')},{bbox.get('height')} label={region.get('ocr_label') or 'unread'}")
+            elif region.get("kind") == "visual_chart_candidate":
+                rendered.append(f"raster chart candidate ({region.get('chart_type')}, confidence={region.get('confidence')})")
+            elif region.get("kind") == "visual_relation_candidate":
+                rendered.append(f"{region.get('relation_type')} candidate {region.get('start')} -> {region.get('end')}")
         if len(regions) > 3:
             rendered.append(f"+{len(regions) - 3} more regions")
     rendered.append(f"lines={location.get('line_start', '?')}-{location.get('line_end', '?')}")
