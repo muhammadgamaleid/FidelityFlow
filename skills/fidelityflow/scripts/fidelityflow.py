@@ -909,7 +909,7 @@ def build_source_map(
             events.append((start, dict(location)))
         else:
             dimensions = re.match(
-                r"^\\[IMAGE_DIMENSIONS width=(\\d+) height=(\\d+) coordinate_space=pixels\\]$",
+                r"^\[IMAGE_DIMENSIONS width=(\d+) height=(\d+) coordinate_space=pixels\]$",
                 stripped,
             )
             if dimensions:
@@ -923,7 +923,7 @@ def build_source_map(
                 }))
             else:
                 slide_dimensions = re.match(
-                    r"^\\[SLIDE_DIMENSIONS cx=(\\d+) cy=(\\d+) coordinate_space=EMU\\]$",
+                    r"^\[SLIDE_DIMENSIONS cx=(\d+) cy=(\d+) coordinate_space=EMU\]$",
                     stripped,
                 )
                 if slide_dimensions:
@@ -937,11 +937,11 @@ def build_source_map(
                     }))
                 else:
                     ocr_region = re.match(
-                        r"^\\[OCR_LINE x=(\\d+):(\\d+) y=(\\d+):(\\d+) confidence=([0-9.]+)\\]",
+                        r"^\[OCR_LINE x=(\d+):(\d+) y=(\d+):(\d+) confidence=([0-9.]+)\]",
                         stripped,
                     )
                     image_region = re.match(
-                        r"^\\[IMAGE_REGION id=(\\S+) x=(-?\\d+) y=(-?\\d+) cx=(\\d+) cy=(\\d+) coordinate_space=slide_emu\\]$",
+                        r"^\[IMAGE_REGION id=(\S+) x=(-?\d+) y=(-?\d+) cx=(\d+) cy=(\d+) coordinate_space=slide_emu\]$",
                         stripped,
                     )
                     if ocr_region:
