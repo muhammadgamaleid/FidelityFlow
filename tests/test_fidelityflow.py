@@ -330,12 +330,14 @@ class FidelityFlowCliTests(unittest.TestCase):
             "[VISION_OBJECT id=1 type=rectangle x=100 y=120 w=160 h=80 confidence=0.72 label=Start coordinate_space=pixels]\n"
             "[VISION_CHART type=plot_candidate x=100 y=80 w=400 h=250 confidence=0.55 coordinate_space=pixels]\n"
             "[VISION_RELATION id=1 type=arrow_candidate x1=260 y1=160 x2=340 y2=160 confidence=0.45 coordinate_space=pixels]\n"
+            "[VISION_SHAPE_CONNECTION id=1 from_shape=1 to_shape=2 direction=arrow_candidate confidence=0.58]\n"
         )
         mapped, summary = module.build_source_map(source, ".png", max_chars=7000)
         kinds = {region["kind"] for region in mapped[0]["regions"]}
         self.assertIn("visual_shape", kinds)
         self.assertIn("visual_chart_candidate", kinds)
         self.assertIn("visual_relation_candidate", kinds)
+        self.assertIn("visual_shape_connection", kinds)
         shape = next(region for region in mapped[0]["regions"] if region["kind"] == "visual_shape")
         self.assertEqual(shape["ocr_label"], "Start")
         self.assertEqual(shape["bbox"]["width"], 160)
