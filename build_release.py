@@ -220,7 +220,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--output", "--skill-output", dest="skill_output", type=Path,
         default=DEFAULT_SKILL_OUTPUT,
-        help="output path for the Free-compatible Skill ZIP",
+        help="output path for the Claude.ai-compatible Skill ZIP",
     )
     parser.add_argument(
         "--plugin-output", type=Path, default=DEFAULT_PLUGIN_OUTPUT,
