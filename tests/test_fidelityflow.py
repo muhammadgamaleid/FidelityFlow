@@ -310,6 +310,18 @@ class FidelityFlowCliTests(unittest.TestCase):
             self.assertIn("Header text", extracted)
             self.assertIn("Footnote detail", extracted)
 
+    def test_source_map_retains_diagram_connector_endpoints(self):
+        module = load_module(CLI, "fidelityflow_connector_source_map_test")
+        source = (
+            "# Slide 1\\n"
+            "[DIAGRAM_CONNECTOR id=7 name=Arrow_1 start=2:0 end=3:1]\\n"
+        )
+        mapped, summary = module.build_source_map(source, ".pptx", max_chars=7000)
+        connector = next(region for region in mapped[0]["regions"] if region["kind"] == "diagram_connector")
+        self.assertEqual(connector["start"], "2:0")
+        self.assertEqual(connector["end"], "3:1")
+        self.assertIn("connector#7 2:0 -> 3:1", module.format_source_location(mapped[0]))
+
     def test_chart_parser_extracts_type_title_axes_legend_and_indexed_points(self):
         module = load_module(CLI, "fidelityflow_chart_semantics_test")
         chart = """<c:chartSpace xmlns:c="http://schemas.openxmlformats.org/drawingml/2006/chart">
