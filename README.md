@@ -64,17 +64,6 @@ Large files, repeated reads, oversized tool results, and unnecessary context can
 
 Visual candidates are geometric heuristics, not semantic image understanding. Raster chart values and series are not reliably reconstructed; embedded raster media inside DOCX/PPTX is not automatically OCR-analyzed. See [file-processing limitations](skills/fidelityflow/references/file-processing.md).
 
-## Why FidelityFlow?
-
-Large files, repeated reads, oversized tool results, and unnecessary context can make Claude sessions harder and more expensive to operate. FidelityFlow focuses on avoidable repetition and retrieval overhead—not on shortening answers that need to be complete.
-
-**Design principles**
-- Keep the original source authoritative and unchanged.
-- Index once, search narrowly, and retrieve only the passages a task needs.
-- Preserve source locations and coordinate systems.
-- Leave unknown, failed, structured, sensitive, or ambiguous output untouched.
-- Make local hooks opt-in and transformations recoverable.
-
 ## Choose the right installation
 
 | What you need | Recommended path |
