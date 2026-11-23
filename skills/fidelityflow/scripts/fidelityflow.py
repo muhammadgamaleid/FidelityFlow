@@ -1223,7 +1223,7 @@ def cmd_doctor(args: argparse.Namespace) -> int:
         "limitations": [
             "PDF text extraction requires optional pypdf",
             "image and scanned-page OCR requires the optional ocr extra plus the Tesseract executable and language data",
-            "OCR is opt-in with --ocr and does not reconstruct visual layout",
+            "OCR is opt-in with --ocr; visual geometry is optional and neither infers chart values nor diagram semantics",
             "legacy .doc/.xls/.ppt are unsupported",
             "visual layout, charts, macros, and embedded objects may need native inspection",
         ],
@@ -1241,6 +1241,8 @@ def cmd_doctor(args: argparse.Namespace) -> int:
             info["supported_extractors"].append("image OCR (opt-in)")
         if info["ocr"].get("ocr_ready_for_scanned_pdfs"):
             info["supported_extractors"].append("scanned PDF OCR (opt-in)")
+        if info["ocr"].get("visual_geometry_ready"):
+            info["supported_extractors"].append("visual geometry cues (optional OpenCV)")
     except Exception as exc:
         info["ocr"] = {"available": False, "reason": str(exc)}
     print(json.dumps(info, ensure_ascii=False, indent=2))
