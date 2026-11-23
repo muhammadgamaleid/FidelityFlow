@@ -1,0 +1,29 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-marketplace.json",
+  "name": "fidelityflow",
+  "owner": {
+    "name": "Muhammad Gamal Eid",
+    "url": "https://github.com/muhammadgamaleid"
+  },
+  "metadata": {
+    "description": "FidelityFlow Claude Skill and local-first context-efficiency plugin.",
+    "version": "1.0.0"
+  },
+  "plugins": [
+    {
+      "name": "fidelityflow",
+      "source": "./",
+      "description": "Source-preserving file indexing, bounded retrieval, and conservative Claude Code workflows.",
+      "version": "0.6.0",
+      "category": "productivity",
+      "tags": [
+        "claude",
+        "context-efficiency",
+        "file-processing",
+        "source-mapping",
+        "ocr",
+        "retrieval"
+      ]
+    }
+  ]
+}
