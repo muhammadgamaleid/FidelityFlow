@@ -47,6 +47,7 @@ Do not create a tag or publish an archive until the release branch has passed CI
 - Claude.ai Skill upload: use `fidelityflow-claude-ai.zip`.
 - Claude.ai custom Plugin upload: use `fidelityflow-plugin.zip` only if that upload option is available to the account.
 - Claude Code local Skill/runtime: use the repository installer documented in README.
+- Claude Code marketplace install: `claude plugin marketplace add muhammadgamaleid/FidelityFlow`, then `claude plugin install fidelityflow@fidelityflow --scope user`.
 - Claude Code local Plugin testing: use `claude --plugin-dir .` from the repository root.
 
 Claude's third-party plugin distribution policies may change. Verify the current official documentation before promising a public marketplace installation route.
