@@ -13,6 +13,7 @@ import zipfile
 ROOT = Path(__file__).resolve().parent
 SKILL_ROOT = ROOT / "skills" / "fidelityflow"
 PLUGIN_MANIFEST = ROOT / ".claude-plugin" / "plugin.json"
+MARKETPLACE_MANIFEST = ROOT / ".claude-plugin" / "marketplace.json"
 DEFAULT_SKILL_OUTPUT = ROOT / "dist" / "fidelityflow-claude-ai.zip"
 DEFAULT_PLUGIN_OUTPUT = ROOT / "dist" / "fidelityflow-plugin.zip"
 
@@ -129,6 +130,32 @@ def validate_plugin_source() -> dict:
     return manifest
 
 
+def validate_marketplace_source() -> dict:
+    if not MARKETPLACE_MANIFEST.is_file():
+        raise FileNotFoundError(".claude-plugin/marketplace.json is required")
+    try:
+        marketplace = json.loads(MARKETPLACE_MANIFEST.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise ValueError(f"Invalid Plugin marketplace manifest: {exc}") from exc
+    if not isinstance(marketplace, dict):
+        raise ValueError("Marketplace manifest must be a JSON object")
+    for field in ("name", "owner", "plugins"):
+        if field not in marketplace:
+            raise ValueError(f"Marketplace manifest requires {field}")
+    if not isinstance(marketplace["owner"], dict) or not marketplace["owner"].get("name"):
+        raise ValueError("Marketplace owner must declare a name")
+    if not isinstance(marketplace["plugins"], list) or not marketplace["plugins"]:
+        raise ValueError("Marketplace must declare at least one plugin")
+    plugin = next((item for item in marketplace["plugins"]
+                   if isinstance(item, dict) and item.get("name") == "fidelityflow"), None)
+    if plugin is None or plugin.get("source") != "./":
+        raise ValueError("Marketplace must expose FidelityFlow from the repository root")
+    manifest = validate_plugin_source()
+    if plugin.get("version") != manifest.get("version"):
+        raise ValueError("Marketplace and Plugin manifest versions must match")
+    return marketplace
+
+
 def _write_archive(output: Path, entries: list[tuple[Path, str]]) -> None:
     output.parent.mkdir(parents=True, exist_ok=True)
     with tempfile.NamedTemporaryFile(
@@ -166,6 +193,7 @@ def build_skill_archive(output: Path) -> None:
 
 def build_plugin_archive(output: Path) -> None:
     validate_plugin_source()
+    validate_marketplace_source()
     skill_files = validate_skill_source()
     entries = [
         (PLUGIN_MANIFEST, ".claude-plugin/plugin.json"),
@@ -208,6 +236,7 @@ def main(argv: list[str] | None = None) -> int:
         plugin_output = args.plugin_output.expanduser().resolve()
         if skill_output == plugin_output:
             raise ValueError("Skill and Plugin archives must use different output paths")
+        validate_marketplace_source()
         build_skill_archive(skill_output)
         build_plugin_archive(plugin_output)
     except (OSError, ValueError) as exc:
