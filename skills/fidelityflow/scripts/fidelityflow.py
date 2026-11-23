@@ -453,6 +453,29 @@ def _relationship_targets(archive: zipfile.ZipFile, rels_member: str) -> dict[st
     return output
 
 
+def _shape_region_marker(shape: ET.Element, marker: str) -> str | None:
+    """Return native OOXML transform coordinates without guessing missing geometry."""
+    transform = next((node for node in shape.iter() if local_name(node.tag) == "xfrm"), None)
+    if transform is None:
+        return None
+    offset = next((node for node in transform if local_name(node.tag) == "off"), None)
+    extent = next((node for node in transform if local_name(node.tag) == "ext"), None)
+    if offset is None or extent is None:
+        return None
+    values = {key: node.attrib.get(attr) for key, node, attr in (
+        ("x", offset, "x"), ("y", offset, "y"),
+        ("cx", extent, "cx"), ("cy", extent, "cy"),
+    )}
+    if not all(value is not None and re.fullmatch(r"-?\\d+", value) for value in values.values()):
+        return None
+    non_visual = next((node for node in shape.iter() if local_name(node.tag) == "cNvPr"), None)
+    object_id = non_visual.attrib.get("id", "?") if non_visual is not None else "?"
+    return (
+        f"[{marker} id={object_id} x={values['x']} y={values['y']} "
+        f"cx={values['cx']} cy={values['cy']} coordinate_space=slide_emu]"
+    )
+
+
 def parse_pptx(path: Path) -> tuple[str, list[str]]:
     notes = [
         "PPTX extraction preserves slide order, text, basic table content, shape alt text, speaker notes, and cached chart data.",
@@ -463,6 +486,14 @@ def parse_pptx(path: Path) -> tuple[str, list[str]]:
     with zipfile.ZipFile(path) as archive:
         validate_ooxml_archive(archive)
         names = set(archive.namelist())
+        presentation_size = None
+        if "ppt/presentation.xml" in names:
+            presentation_root = ET.fromstring(read_ooxml_xml_member(archive, "ppt/presentation.xml"))
+            slide_size = next((node for node in presentation_root.iter() if local_name(node.tag) == "sldSz"), None)
+            if slide_size is not None:
+                cx, cy = slide_size.attrib.get("cx"), slide_size.attrib.get("cy")
+                if cx and cy and cx.isdigit() and cy.isdigit():
+                    presentation_size = (cx, cy)
         slide_names = [
             name for name in names
             if re.fullmatch(r"ppt/slides/slide\d+\.xml", name)
@@ -473,6 +504,10 @@ def parse_pptx(path: Path) -> tuple[str, list[str]]:
             number = int(re.search(r"slide(\d+)", slide_member).group(1))
             root = ET.fromstring(read_ooxml_xml_member(archive, slide_member))
             output.append(f"# Slide {number}")
+            if presentation_size:
+                output.append(
+                    f"[SLIDE_DIMENSIONS cx={presentation_size[0]} cy={presentation_size[1]} coordinate_space=EMU]"
+                )
             rels_member = f"ppt/slides/_rels/slide{number}.xml.rels"
             relationships = _relationship_targets(archive, rels_member)
 
@@ -525,6 +560,9 @@ def parse_pptx(path: Path) -> tuple[str, list[str]]:
                             output.append(f"[IMAGE ALT TEXT: {alternative}]")
                         else:
                             output.append("[IMAGE: no alternative text provided]")
+                    region_marker = _shape_region_marker(shape, "IMAGE_REGION")
+                    if region_marker:
+                        output.append(region_marker)
 
                 elif kind == "graphicFrame":
                     rows = []
