@@ -15,7 +15,7 @@ Use FidelityFlow when the user is working with large or repeatedly used files, n
 2. Identify the platform:
    - **Claude.ai:** use the bundled file-processing CLI only when the source file is actually accessible in the Skill execution workspace.
    - **Claude Code:** use the local CLI after installation. Optional hooks are separate and must be installed by the user.
-3. Identify whether the task depends on visual layout, charts, screenshots, scanned pages, or exact spreadsheet calculations. Use Claude's native visual/document capabilities for those requirements; the current extractor is not a visual replacement.
+3. Identify whether the task depends on visual layout, charts, screenshots, scanned pages, or exact spreadsheet calculations. For standalone images and scanned pages, enable local OCR and the optional `vision` extra to obtain OCR coordinates and heuristic shape/plot/arrow candidates. Treat these as navigation evidence only; verify chart values, arrow direction, and semantic meaning against the original or use Claude's native visual capabilities.
 
 ## File workflow
 
