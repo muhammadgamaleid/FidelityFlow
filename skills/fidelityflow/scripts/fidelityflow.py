@@ -1060,7 +1060,7 @@ def build_source_map(
             }))
             continue
         picture_match = re.match(
-            r"^\\[(IMAGE|CHART)_REGION id=(\\S+) x=(-?\\d+) y=(-?\\d+) cx=(\\d+) cy=(\\d+) coordinate_space=slide_emu\\]$",
+            r"^\[(IMAGE|CHART)_REGION id=(\S+) x=(-?\d+) y=(-?\d+) cx=(\d+) cy=(\d+) coordinate_space=slide_emu\]$",
             marker,
         )
         if picture_match:
@@ -1072,9 +1072,9 @@ def build_source_map(
                 "coordinate_space": "slide_emu", "slide_dimensions": current_slide_dimensions,
             }))
             continue
-        docx_match = re.match(r"^\\[DOCX_IMAGE_REGION (.+)\\]$", marker)
+        docx_match = re.match(r"^\[DOCX_IMAGE_REGION (.+)\]$", marker)
         if docx_match:
-            fields = dict(re.findall(r"(\\w+)=([^ ]+)", docx_match.group(1)))
+            fields = dict(re.findall(r"(\w+)=([^ ]+)", docx_match.group(1)))
             region = {"kind": "docx_picture", "object_id": fields.get("id"), "layout": fields.get("layout"),
                       "extent_emu": {"width": int(fields["cx"]), "height": int(fields["cy"])}}
             if fields.get("target"):
@@ -1092,7 +1092,7 @@ def build_source_map(
             region["coordinate_space"] = "word_anchor_relative" if fields.get("layout") == "floating" else "inline_extent"
             region_events.append((line_start, region))
             continue
-        office_match = re.match(r"^\\[OFFICE_OBJECT id=(\\S+) name=(\\S+) kind=(\\S+)\\]$", marker)
+        office_match = re.match(r"^\[OFFICE_OBJECT id=(\S+) name=(\S+) kind=(\S+)\]$", marker)
         if office_match:
             region_events.append((line_start, {"kind": "office_object", "object_id": office_match.group(1),
                                               "name": office_match.group(2), "object_type": office_match.group(3)}))
