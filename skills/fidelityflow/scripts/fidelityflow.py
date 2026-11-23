@@ -984,11 +984,72 @@ def build_source_map(
                 cell_location["line"] = line_number
                 events.append((start, cell_location))
 
+    region_events: list[tuple[int, dict]] = []
+    current_image_dimensions = None
+    current_slide_dimensions = None
+    for line_start, _, _, raw_line in lines:
+        marker = raw_line.strip()
+        dimensions_match = re.match(
+            r"^\[IMAGE_DIMENSIONS width=(\d+) height=(\d+) coordinate_space=pixels\]$", marker
+        )
+        if dimensions_match:
+            current_image_dimensions = {
+                "width": int(dimensions_match.group(1)),
+                "height": int(dimensions_match.group(2)),
+                "coordinate_space": "pixels",
+            }
+            continue
+        slide_match = re.match(
+            r"^\[SLIDE_DIMENSIONS cx=(\d+) cy=(\d+) coordinate_space=EMU\]$", marker
+        )
+        if slide_match:
+            current_slide_dimensions = {
+                "cx": int(slide_match.group(1)),
+                "cy": int(slide_match.group(2)),
+                "coordinate_space": "EMU",
+            }
+            continue
+        ocr_match = re.match(
+            r"^\[OCR_LINE x=(\d+):(\d+) y=(\d+):(\d+) confidence=([0-9.]+)\]", marker
+        )
+        if ocr_match:
+            region_events.append((line_start, {
+                "kind": "ocr_text_line",
+                "bbox": {
+                    "x": int(ocr_match.group(1)),
+                    "y": int(ocr_match.group(3)),
+                    "width": int(ocr_match.group(2)) - int(ocr_match.group(1)),
+                    "height": int(ocr_match.group(4)) - int(ocr_match.group(3)),
+                },
+                "coordinate_space": "pixels",
+                "confidence": float(ocr_match.group(5)),
+                "image_dimensions": current_image_dimensions,
+            }))
+            continue
+        picture_match = re.match(
+            r"^\[IMAGE_REGION id=(\S+) x=(-?\d+) y=(-?\d+) cx=(\d+) cy=(\d+) coordinate_space=slide_emu\]$",
+            marker,
+        )
+        if picture_match:
+            region_events.append((line_start, {
+                "kind": "embedded_image",
+                "object_id": picture_match.group(1),
+                "bbox": {
+                    "x": int(picture_match.group(2)),
+                    "y": int(picture_match.group(3)),
+                    "width": int(picture_match.group(4)),
+                    "height": int(picture_match.group(5)),
+                },
+                "coordinate_space": "slide_emu",
+                "slide_dimensions": current_slide_dimensions,
+            }))
+
     events.sort(key=lambda item: item[0])
     if chunks is None:
         chunks = split_chunks(text, max_chars=max_chars, source_suffix=source_suffix)
     mapped = []
     event_index = 0
+    region_index = 0
     active_location: dict = initial_location
     for chunk in chunks:
         while event_index < len(events) and events[event_index][0] < chunk["char_start"]:
@@ -1005,12 +1066,7 @@ def build_source_map(
         while event_index < len(events) and events[event_index][0] < chunk["char_end"]:
             _, event = events[event_index]
             if event.get("_region"):
-                region = dict(event["_region"])
-                if region.get("coordinate_space") == "pixels" and active_location.get("image_dimensions"):
-                    region["image_dimensions"] = active_location["image_dimensions"]
-                if region.get("coordinate_space") == "slide_emu" and active_location.get("slide_dimensions"):
-                    region["slide_dimensions"] = active_location["slide_dimensions"]
-                regions.append(region)
+                pass
             elif event.get("_context"):
                 active_location.update({key: value for key, value in event.items() if key != "_context"})
             elif event.get("cell_refs"):
@@ -1035,6 +1091,11 @@ def build_source_map(
             "line_start": chunk["line_start"],
             "line_end": chunk["line_end"],
         }
+        while region_index < len(region_events) and region_events[region_index][0] < chunk["char_start"]:
+            region_index += 1
+        while region_index < len(region_events) and region_events[region_index][0] < chunk["char_end"]:
+            regions.append(region_events[region_index][1])
+            region_index += 1
         if cell_refs:
             location["cell_refs"] = list(dict.fromkeys(cell_refs))[:50]
         if regions:
