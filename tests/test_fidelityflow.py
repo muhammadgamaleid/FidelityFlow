@@ -328,7 +328,7 @@ class FidelityFlowCliTests(unittest.TestCase):
             "[IMAGE: diagram.png]\n"
             "[IMAGE_DIMENSIONS width=640 height=420 coordinate_space=pixels]\n"
             "[VISION_OBJECT id=1 type=rectangle x=100 y=120 w=160 h=80 confidence=0.72 label=Start coordinate_space=pixels]\n"
-            "[VISION_CHART type=plot_candidate confidence=0.55 coordinate_space=pixels]\n"
+            "[VISION_CHART type=plot_candidate x=100 y=80 w=400 h=250 confidence=0.55 coordinate_space=pixels]\n"
             "[VISION_RELATION id=1 type=arrow_candidate x1=260 y1=160 x2=340 y2=160 confidence=0.45 coordinate_space=pixels]\n"
         )
         mapped, summary = module.build_source_map(source, ".png", max_chars=7000)
@@ -339,6 +339,9 @@ class FidelityFlowCliTests(unittest.TestCase):
         shape = next(region for region in mapped[0]["regions"] if region["kind"] == "visual_shape")
         self.assertEqual(shape["ocr_label"], "Start")
         self.assertEqual(shape["bbox"]["width"], 160)
+        chart = next(region for region in mapped[0]["regions"] if region["kind"] == "visual_chart_candidate")
+        self.assertEqual(chart["bbox"]["width"], 400)
+        self.assertEqual(chart["image_dimensions"]["width"], 640)
         self.assertIn("raster chart candidate", module.format_source_location(mapped[0]))
 
     def test_chart_parser_extracts_type_title_axes_legend_and_indexed_points(self):
