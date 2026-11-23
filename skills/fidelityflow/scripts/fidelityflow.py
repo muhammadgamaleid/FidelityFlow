@@ -820,7 +820,7 @@ def parse_pdf(
 def expected_extractor(path: Path, ocr: bool = False) -> str | None:
     suffix = normalized_suffix(path)
     if suffix in OCR_IMAGE_SUFFIXES:
-        return "image-ocr-tesseract-v2" if ocr else None
+        return "image-ocr-tesseract-v3" if ocr else None
     if suffix == ".docx":
         return "docx-stdlib-v2"
     if suffix == ".xlsx":
@@ -828,7 +828,7 @@ def expected_extractor(path: Path, ocr: bool = False) -> str | None:
     if suffix == ".pptx":
         return "pptx-stdlib-v2"
     if suffix == ".pdf":
-        return "pdf-pypdf-ocr-v2" if ocr else "pdf-pypdf-v1"
+        return "pdf-pypdf-ocr-v3" if ocr else "pdf-pypdf-v1"
     text_suffixes = {
         ".txt", ".md", ".markdown", ".rst", ".log", ".csv", ".tsv",
         ".json", ".jsonl", ".yaml", ".yml", ".xml", ".html", ".htm",
