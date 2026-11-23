@@ -146,4 +146,4 @@ The `fidelityflow.learning` package stores evidence-backed project facts in loca
 - Audio/video extraction is not supported.
 - Independent, large-scale end-to-end quality and savings benchmarks remain future work.
 
-See [the consumption strategy](../../../../docs/CONSUMPTION-STRATEGY.md) for priorities and evaluation criteria.
+See the [consumption strategy](https://github.com/muhammadgamaleid/FidelityFlow/blob/main/docs/CONSUMPTION-STRATEGY.md) for priorities and evaluation criteria.
