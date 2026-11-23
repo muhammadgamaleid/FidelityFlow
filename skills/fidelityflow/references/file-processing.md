@@ -29,9 +29,9 @@ Supported navigation hints:
 | Source format | Location metadata |
 |---|---|
 | PDF | Page number, including pages that received OCR |
-| PPTX | Slide number, table/image markers, chart identifier when cached chart data is present |
+| PPTX | Slide number, Office object IDs, picture/chart-frame bounds, table markers, and chart relationship targets |
 | XLSX | Worksheet name and cell references present in the chunk; chart identifier when cached chart data is present |
-| DOCX | Table sequence markers and document line range |
+| DOCX | Table sequence markers, inline/floating picture IDs, media relationships, extents, and anchor-relative offsets |
 | Standalone OCR images | Image-level source identity |
 | Other text formats | Document identity and line range |
 
@@ -41,15 +41,17 @@ The manifest includes a versioned `source_map` summary (located chunk count, dis
 
 - OCR text lines carry approximate pixel bounding boxes (`x`, `y`, `width`, `height`) and mean word confidence. The source map attaches those boxes to the relevant chunk and records the processed image width and height.
 - For scanned PDF pages, OCR boxes are relative to the rendered page image at the selected OCR DPI, not PDF points or the original embedded image.
-- PPTX picture objects carry their native OOXML object ID and bounding rectangle in slide EMUs when the file contains a complete transform. The slide canvas dimensions are recorded where available.
+- DOCX inline and floating pictures carry the native `wp:docPr` object ID, media relationship target, extent in EMUs, and (for floating anchors) raw horizontal/vertical offsets or alignment plus their `relativeFrom` reference frame. These offsets are not absolute page coordinates because Word layout depends on page, margin, column, paragraph, and character layout.
+- PPTX picture and chart-frame objects carry native Office object IDs and bounding rectangles in slide EMUs when a complete transform exists. Chart frames also retain the chart relationship target; slide canvas dimensions are recorded where available.
+- PPTX shape and graphic-frame IDs are exposed as Office object regions to make source references stable within the source part.
 - Coordinates are not silently converted between pixels, PDF points, and EMUs. Each region explicitly identifies its coordinate space.
-- Picture bounds identify the image object's placement on a slide; they do not identify semantic subregions inside that picture. DOCX floating images, chart plot-area geometry, and semantic diagram regions remain unsupported.
+- Picture bounds identify the image object's placement on a slide; they do not identify semantic subregions inside that picture. Absolute DOCX page placement, PPTX chart plot-area geometry, and semantic subregions inside pictures/diagrams remain unsupported. Chart-frame bounds identify the containing Office object, not the plot rectangle.
 
 Important boundaries:
 - A chunk can span more than one page, slide, or other marked region; all explicit regions represented in that chunk are retained.
 - XLSX cell references are recorded only when the extractor emitted them in the chunk.
 - OCR boxes are approximate and reflect the processed image. PPTX image bounds are native slide-object bounds; neither mechanism provides semantic understanding of image content.
-- DOCX table numbering and PPTX image numbering are extraction-order identifiers, not native Office object IDs.
+- DOCX table numbering and PPTX image numbering are extraction-order identifiers; picture and shape object IDs are native identifiers within their OOXML part and are not guaranteed globally unique across files.
 - These are navigation hints, not reconstructed page geometry, exact visual coordinates, or a guarantee that every source element was extractable. Always verify consequential content against the original.
 
 ## Optional OCR
