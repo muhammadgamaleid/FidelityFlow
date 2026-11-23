@@ -134,7 +134,7 @@ def _run_ocr(image, language: str, psm: int):
     ).strip()
     # Prefer credible confidence, then useful coverage; never fabricate text.
     score = average + min(len(text), 1200) / 120.0
-    return {"text": text, "words": words, "confidence": average, "score": score, "psm": psm}
+    return {"text": text, "words": words, "confidence": average, "score": score, "psm": psm, "image_size": image.size}
 
 
 def _best_ocr(image, language: str):
@@ -211,7 +211,7 @@ def _vision_words(words: list[dict], scale_x: float, scale_y: float) -> list[dic
     return normalized
 
 
-def analyze_visual_structure(image, words: list[dict] | None = None) -> list[str]:
+def analyze_visual_structure(image, words: list[dict] | None = None, ocr_size=None) -> list[str]:
     """Extract conservative shape, chart, and connector evidence from raster images.
 
     Geometry is heuristic and optional. Semantic labels are attached only when OCR
@@ -326,7 +326,7 @@ def analyze_visual_structure(image, words: list[dict] | None = None) -> list[str
                 margin = max(8, int(min(w, h) * 0.12))
                 if wx <= right + margin and wr >= x - margin and wy <= bottom + margin and wb >= y - margin:
                     labels.append(word["text"])
-            label = re.sub(r"[^\\w.-]+", "_", " ".join(labels), flags=re.UNICODE)[:100] or "none"
+            label = re.sub(r"[^\w.-]+", "_", " ".join(labels), flags=re.UNICODE)[:100] or "none"
             evidence.append(
                 f"[VISION_OBJECT id={index} type={item['kind']} x={x} y={y} w={w} h={h} "
                 f"confidence={item['confidence']:.2f} label={label} coordinate_space=pixels]"
@@ -391,7 +391,7 @@ def _format_result(result: dict, image, source: str) -> str:
         sections.extend(["[OCR_LAYOUT]", *lines, "[/OCR_LAYOUT]"])
     elif text:
         sections.append(text)
-    visual = analyze_visual_structure(image, result["words"])
+    visual = analyze_visual_structure(image, result["words"], result.get("image_size"))
     if visual:
         sections.extend(["[VISUAL_GEOMETRY]", *visual, "[/VISUAL_GEOMETRY]"])
     return "\n".join(section for section in sections if section is not None)
