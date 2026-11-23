@@ -831,7 +831,9 @@ def build_source_map(
 
     events: list[tuple[int, dict]] = []
     counters = Counter()
-    active: dict = {"kind": "document"}
+    active: dict = {"kind": "image", "image": 1} if suffix in OCR_IMAGE_SUFFIXES else {"kind": "document"}
+    if suffix in OCR_IMAGE_SUFFIXES:
+        counters["image"] = 1
 
     for start, end, line_number, line in lines:
         stripped = line.strip()
