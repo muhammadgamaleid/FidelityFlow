@@ -25,7 +25,7 @@ import xml.etree.ElementTree as ET
 from datetime import datetime, timezone
 from collections import Counter
 
-VERSION = "0.5.0"  # Office extraction, OCR, code-aware chunking, and expanded identifier indexing.
+VERSION = "0.6.0"  # Structured source locations for pages, sheets, slides, tables, and images.
 DEFAULT_CACHE = Path.cwd() / ".fidelityflow" / "cache"
 DEFAULT_ARCHIVE = Path.cwd() / ".fidelityflow" / "archive"
 CHUNK_CHARS = 7000
@@ -813,6 +813,122 @@ def split_chunks(
         index += 1
     assert "".join(chunk["text"] for chunk in chunks) == text
     return chunks
+def build_source_map(text: str, source_suffix: str | None = None) -> tuple[list[dict], dict]:
+    """Build deterministic, text-offset-based source locations for extracted content.
+
+    Locations are inferred only from explicit extractor markers and cell references.
+    They are navigational hints, not claims about visual coordinates or semantic layout.
+    """
+    suffix = (source_suffix or "").casefold()
+    lines = []
+    offset = 0
+    for line_number, line in enumerate(text.splitlines(keepends=True), start=1):
+        content = line.rstrip("\r\n")
+        lines.append((offset, offset + len(line), line_number, content))
+        offset += len(line)
+
+    events: list[tuple[int, dict]] = []
+    counters = Counter()
+    context: dict = {"kind": "document"}
+
+    for start, end, line_number, line in lines:
+        stripped = line.strip()
+        location = None
+
+        match = re.match(r"^\[PAGE\s+(\d+)\]$", stripped, re.IGNORECASE)
+        if match:
+            location = {"kind": "page", "page": int(match.group(1))}
+        else:
+            match = re.match(r"^#\s*Slide\s+(\d+)\b", stripped, re.IGNORECASE)
+            if match:
+                location = {"kind": "slide", "slide": int(match.group(1))}
+            else:
+                match = re.match(r"^#\s*Sheet:\s*(.+?)\s*$", stripped, re.IGNORECASE)
+                if match:
+                    location = {"kind": "sheet", "sheet": match.group(1)}
+                elif stripped == "[TABLE]":
+                    counters["table"] += 1
+                    location = {"kind": "table", "table": counters["table"]}
+                elif stripped.startswith(("[IMAGE:", "[IMAGE ALT TEXT:", "[SHAPE ALT TEXT:")):
+                    counters["image"] += 1
+                    location = {"kind": "image", "image": counters["image"]}
+                else:
+                    match = re.match(r"^###\s*Chart:\s*(.+?)\s*$", stripped, re.IGNORECASE)
+                    if match:
+                        counters["chart"] += 1
+                        location = {"kind": "chart", "chart": match.group(1), "chart_index": counters["chart"]}
+
+        if location:
+            context = dict(location)
+            context["line"] = line_number
+            events.append((start, context))
+
+        if suffix == ".xlsx" or context.get("kind") == "sheet":
+            refs = re.findall(r"(?<![A-Za-z0-9_])([A-Z]{1,3}\d+)\s*(?==|formula=)", line)
+            if refs:
+                cell_event = dict(context)
+                cell_event["cell_refs"] = list(dict.fromkeys(refs))[:50]
+                cell_event["line"] = line_number
+                events.append((start, cell_event))
+
+    events.sort(key=lambda item: item[0])
+    locations = []
+    event_index = 0
+    active = {"kind": "document"}
+    for chunk in split_chunks(text, max_chars=max(500, min(CHUNK_CHARS, len(text) or CHUNK_CHARS)),
+                              source_suffix=source_suffix):
+        while event_index < len(events) and events[event_index][0] < chunk["char_end"]:
+            event_offset, event_location = events[event_index]
+            if event_offset < chunk["char_start"] or event_offset >= chunk["char_start"]:
+                active = {key: value for key, value in event_location.items() if key != "cell_refs"}
+            event_index += 1
+        chunk_events = [
+            event for event_offset, event in events
+            if chunk["char_start"] <= event_offset < chunk["char_end"]
+            and event.get("cell_refs")
+        ]
+        location = dict(active)
+        cell_refs = []
+        for event in chunk_events:
+            cell_refs.extend(event.get("cell_refs", []))
+        if cell_refs:
+            location["cell_refs"] = list(dict.fromkeys(cell_refs))[:50]
+        location["line_start"] = chunk["line_start"]
+        location["line_end"] = chunk["line_end"]
+        locations.append(location)
+
+    summary = {
+        "version": 1,
+        "chunk_count": len(locations),
+        "located_chunks": sum(1 for item in locations if item.get("kind") != "document"),
+        "pages": sorted({item["page"] for item in locations if "page" in item}),
+        "slides": sorted({item["slide"] for item in locations if "slide" in item}),
+        "sheets": sorted({item["sheet"] for item in locations if "sheet" in item}),
+        "tables": counters["table"],
+        "images": counters["image"],
+        "charts": counters["chart"],
+    }
+    return locations, summary
+
+
+def format_source_location(location: dict | None) -> str:
+    """Render compact, human-readable provenance without inventing missing coordinates."""
+    if not isinstance(location, dict):
+        return "document"
+    parts = []
+    for key, label in (("page", "page"), ("slide", "slide"), ("sheet", "sheet"),
+                       ("table", "table"), ("image", "image"), ("chart", "chart")):
+        if location.get(key) is not None:
+            parts.append(f"{label}={location[key]}")
+    if location.get("cell_refs"):
+        refs = location["cell_refs"]
+        parts.append("cells=" + ",".join(refs[:12]) + ("…" if len(refs) > 12 else ""))
+    if not parts:
+        parts.append(str(location.get("kind", "document")))
+    parts.append(f"lines={location.get('line_start', '?')}-{location.get('line_end', '?')}")
+    return " | ".join(parts)
+
+
 def default_cache_dir(value: str | None) -> Path:
     return Path(value).expanduser().resolve() if value else DEFAULT_CACHE.resolve()
 
@@ -914,6 +1030,9 @@ def cmd_ingest(args: argparse.Namespace) -> int:
         print(f"Extraction failed: extractor mismatch ({extractor} != {extractor_expected})", file=sys.stderr)
         return 3
     chunks = split_chunks(text, args.chunk_chars, source_suffix=normalized_suffix(path))
+    source_locations, source_map_summary = build_source_map(text, normalized_suffix(path))
+    for chunk, location in zip(chunks, source_locations):
+        chunk["source_location"] = location
     atomic_write_text(doc_dir / "content.txt", text)
     # Store text once. The index stores offsets, source locations, hashes,
     # and term frequencies only, allowing ranking before reading source text.
@@ -942,6 +1061,7 @@ def cmd_ingest(args: argparse.Namespace) -> int:
         "line_count": text.count("\n") + (1 if text else 0),
         "chunk_count": len(chunks),
         "chunk_chars": args.chunk_chars,
+        "source_map": source_map_summary,
         "processing": {"ocr": ocr_enabled, "ocr_lang": ocr_lang, "ocr_dpi": ocr_dpi, "ocr_max_pages": ocr_max_pages},
         "warnings": notes,
         "content_file": "content.txt",
@@ -1090,7 +1210,8 @@ def cmd_search(args: argparse.Namespace) -> int:
         content = content_cache[content_file]
         full_text = content[chunk["char_start"]:chunk["char_end"]]
         excerpt = build_excerpt(full_text, args.query, args.max_chars)
-        print(f"\n## Result {rank} | score={score:.3f} | {chunk['source_name']} | doc={chunk['document_id']} chunk={chunk['chunk']} lines={chunk['line_start']}-{chunk['line_end']}")
+        location = format_source_location(chunk.get("source_location"))
+        print(f"\n## Result {rank} | score={score:.3f} | {chunk['source_name']} | doc={chunk['document_id']} chunk={chunk['chunk']} | {location}")
         print(excerpt)
     if not scored:
         print("No lexical matches. Try alternate terms or use Claude's native Project search for semantic retrieval.")
@@ -1124,7 +1245,8 @@ def cmd_show(args: argparse.Namespace) -> int:
         return 2
     record = records[args.chunk]
     chunk_text = content[record["char_start"]:record["char_end"]]
-    print(f"[SOURCE: {manifest['source_name']} | SHA256: {manifest['sha256']} | CHUNK: {record['chunk']} | LINES: {record['line_start']}-{record['line_end']}]")
+    location = format_source_location(record.get("source_location"))
+    print(f"[SOURCE: {manifest['source_name']} | SHA256: {manifest['sha256']} | CHUNK: {record['chunk']} | {location}]")
     print(chunk_text, end="" if chunk_text.endswith("\n") else "\n")
     return 0
 
