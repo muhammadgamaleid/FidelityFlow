@@ -108,13 +108,13 @@ For PDF extraction, install the `pdf` extra as shown above.
 OCR is available in the local CLI only. Install the Python extra, then install the Tesseract executable and the language data you need:
 
 ```bash
-python -m pip install -e ".[ocr]"
+python -m pip install -e ".[ocr,vision]"
 fidelityflow doctor
 fidelityflow ingest "scanned-report.pdf" --ocr --ocr-lang ara+eng
 fidelityflow ingest "screenshot.png" --ocr --ocr-lang ara+eng
 ```
 
-OCR is opt-in, processes only sparse-text PDF pages by default, and respects DPI/page limits. Claude.ai's managed Skill workspace does not guarantee Tesseract or its language packs, so this workflow is not promised in web chat. OCR extracts text; it does not interpret charts or diagrams.
+OCR is opt-in, processes only sparse-text PDF pages by default, and respects DPI/page limits. Claude.ai's managed Skill workspace does not guarantee Tesseract or its language packs, so this workflow is not promised in web chat. OCR extracts text and approximate layout evidence; it does not interpret chart values, arrow direction, or diagram semantics.
 
 ## What works today
 
@@ -132,7 +132,7 @@ OCR is opt-in, processes only sparse-text PDF pages by default, and respects DPI
 | PreCompact context handoff guidance | — | Optional hook; guides Claude's native compaction |
 | Evidence-backed project memory | — | Local SQLite |
 
-**Not implemented yet:** general schema-aware MCP/web-result reduction, full AST/LSP navigation, semantic retrieval, visual image understanding beyond OCR, audio/video processing, and independently validated end-to-end savings across representative tasks.
+**Not implemented yet:** general schema-aware MCP/web-result reduction, full AST/LSP navigation, semantic retrieval, model-based visual understanding of chart/diagram meaning, audio/video processing, and independently validated end-to-end savings across representative tasks.
 
 Search is lexical, not semantic. Office extraction is text-oriented and does not fully reconstruct visual layout, charts, embedded objects, or spreadsheet calculation behavior.
 
