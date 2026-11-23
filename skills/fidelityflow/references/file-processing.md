@@ -16,7 +16,7 @@ An extracted index is not a replacement for the source. Retrieve the original pa
 | XLSX | Sheet visibility, cell addresses, text/numeric values, formulas and cached values, hidden rows/columns, merged ranges, defined names, cached chart data | Does not reproduce formatting, pivot tables, macros, external connections, validations, or formula recalculation |
 | PPTX | Slide text, basic tables, shape/image alt text, speaker notes, shape positions, and cached chart data | Does not reconstruct image content, diagrams, animation, or complete spatial layout |
 | PDF | Per-page text with [PAGE n] markers | Requires optional pypdf; scans, figures, complex tables, columns, and visual layout are not represented by text extraction |
-| PNG / JPEG / TIFF / BMP / WebP | OCR text when explicitly enabled | Requires optional OCR extra, Tesseract executable, and language data; OCR is not visual understanding |
+| PNG / JPEG / TIFF / BMP / WebP | Multi-pass OCR with word confidence and approximate line bounding boxes; optional geometric evidence when OpenCV is installed | Requires OCR extra, Tesseract executable, and language data; OpenCV geometry is not semantic chart/diagram understanding |
 
 Office ZIP/XML input is subject to archive-member, aggregate-size, entry-count, and compression-ratio safety limits. Legacy .doc, .xls, and .ppt formats are not supported.
 
@@ -25,10 +25,10 @@ Office ZIP/XML input is subject to archive-member, aggregate-size, entry-count, 
 OCR is local, opt-in, and never runs unless the user supplies `--ocr`. Install the Python dependencies:
 
 ~~~bash
-python -m pip install -e ".[ocr]"
+python -m pip install -e ".[ocr,vision]"
 ~~~
 
-Install the Tesseract OCR executable separately and install the language data you need. For Arabic and English together, pass `ara+eng`; both language packs must be present.
+Install the Tesseract OCR executable separately and install the language data you need. For Arabic and English together, pass `ara+eng`; both language packs must be present. The `vision` extra is optional and can be omitted when only OCR is needed.
 
 Check readiness:
 
@@ -59,7 +59,7 @@ Controls:
 - `--ocr-max-pages`: maximum sparse-text pages processed per PDF, 1–500.
 - OCR is attempted only on PDF pages with fewer than 40 extracted text characters. It does not OCR every page by default.
 - Image inputs are bounded by file-size and pixel-count safety limits.
-- OCR output is approximate. Verify numbers, names, tables, and legal/financial text against the original.
+- OCR runs bounded preprocessing variants (contrast normalization, upscaling/sharpening, and thresholding), tries multiple page segmentation modes, and selects the strongest result using recognized-word confidence and text coverage. Orientation detection is applied only when Tesseract reports sufficient confidence.\n- Recognized lines retain approximate pixel bounding boxes and mean word confidence; coordinates refer to the processed image and are not a substitute for the original.\n- The optional `vision` extra installs OpenCV for conservative geometric evidence such as long horizontal/vertical/diagonal lines and substantial contours. It does not infer chart values, axis labels, arrow direction, flow semantics, or causal relationships.\n- OCR output remains approximate. Verify numbers, names, tables, and legal/financial text against the original.
 
 The Skill package includes the OCR Python module, but Claude.ai's managed workspace does not guarantee that the Tesseract executable, OCR language packs, or native dependencies are available. Do not promise OCR in Claude.ai. The supported and documented OCR route is the local CLI.
 
