@@ -49,7 +49,7 @@ def _orientation(image, pytesseract) -> tuple[object, str | None]:
             elif line.startswith("Orientation confidence:"):
                 confidence = float(line.split(":", 1)[1].strip())
         if rotation in (90, 180, 270) and confidence >= 3.0:
-            return image.rotate(rotation, expand=True), f"auto-rotated {rotation} degrees"
+            return image.rotate(-rotation, expand=True), f"auto-rotated {rotation} degrees"
     except Exception:
         # OSD commonly fails on short text and non-text images. It is advisory.
         pass
@@ -235,10 +235,13 @@ def _format_result(result: dict, image, source: str) -> str:
     sections = [
         f"[IMAGE: {source}]",
         f"[OCR_QUALITY mean_word_confidence={result['confidence']:.1f}/100 psm={result['psm']}]",
-        text,
     ]
     if lines:
+        # Keep one copy of recognized text: coordinates/confidence are attached
+        # to each line instead of repeating a second plain-text transcript.
         sections.extend(["[OCR_LAYOUT]", *lines, "[/OCR_LAYOUT]"])
+    elif text:
+        sections.append(text)
     visual = analyze_visual_structure(image)
     if visual:
         sections.extend(["[VISUAL_GEOMETRY]", *visual, "[/VISUAL_GEOMETRY]"])
@@ -250,7 +253,7 @@ def extract_image(path: Path, language: str = "eng") -> tuple[str, list[str]]:
         raise ValueError(
             f"Image exceeds the OCR safety limit of {MAX_IMAGE_BYTES // (1024 * 1024)} MiB."
         )
-    _, Image, *_ = _dependencies()
+    _, Image, _, _, ImageOps = _dependencies()
     try:
         with Image.open(path) as opened:
             width, height = opened.size
