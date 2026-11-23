@@ -210,13 +210,11 @@ def analyze_visual_structure(image) -> list[str]:
     except ImportError:
         return []
     try:
-        rgb = image.convert("RGB")
-        array = np.asarray(rgb)
+        width, height = image.size
+        analysis = image.convert("RGB")
+        analysis.thumbnail((1800, 1800))
+        array = np.asarray(analysis)
         gray = cv2.cvtColor(array, cv2.COLOR_RGB2GRAY)
-        height, width = gray.shape[:2]
-        scale = min(1.0, 1800 / max(width, height))
-        if scale < 1:
-            gray = cv2.resize(gray, None, fx=scale, fy=scale, interpolation=cv2.INTER_AREA)
         edges = cv2.Canny(gray, 60, 160)
         min_line = max(40, int(min(gray.shape) * 0.12))
         detected = cv2.HoughLinesP(
@@ -342,6 +340,11 @@ def extract_pdf_pages(
             if index < 0 or index >= len(document):
                 continue
             page = document.load_page(index)
+            estimated_width = max(1, int(page.rect.width * scale + 0.999))
+            estimated_height = max(1, int(page.rect.height * scale + 0.999))
+            if estimated_width * estimated_height > MAX_IMAGE_PIXELS:
+                warnings.append(f"Page {index + 1} skipped: estimated render exceeds the pixel safety limit.")
+                continue
             pixmap = page.get_pixmap(
                 matrix=fitz.Matrix(scale, scale),
                 colorspace=fitz.csRGB,
