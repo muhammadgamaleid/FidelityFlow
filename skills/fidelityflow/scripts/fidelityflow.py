@@ -631,7 +631,7 @@ def parse_pdf(
 def expected_extractor(path: Path, ocr: bool = False) -> str | None:
     suffix = normalized_suffix(path)
     if suffix in OCR_IMAGE_SUFFIXES:
-        return "image-ocr-tesseract-v1" if ocr else None
+        return "image-ocr-tesseract-v2" if ocr else None
     if suffix == ".docx":
         return "docx-stdlib-v2"
     if suffix == ".xlsx":
@@ -639,7 +639,7 @@ def expected_extractor(path: Path, ocr: bool = False) -> str | None:
     if suffix == ".pptx":
         return "pptx-stdlib-v2"
     if suffix == ".pdf":
-        return "pdf-pypdf-ocr-v1" if ocr else "pdf-pypdf-v1"
+        return "pdf-pypdf-ocr-v2" if ocr else "pdf-pypdf-v1"
     text_suffixes = {
         ".txt", ".md", ".markdown", ".rst", ".log", ".csv", ".tsv",
         ".json", ".jsonl", ".yaml", ".yml", ".xml", ".html", ".htm",
@@ -664,7 +664,7 @@ def extract_file(
             raise RuntimeError("Image files require explicit --ocr and the optional OCR dependencies.")
         engine = _load_ocr_engine()
         text, notes = engine.extract_image(path, language=ocr_lang)
-        return text, notes, "image-ocr-tesseract-v1"
+        return text, notes, "image-ocr-tesseract-v2"
     if suffix == ".docx":
         text, notes = extract_docx(path)
         return text, notes, "docx-stdlib-v2"
@@ -676,7 +676,7 @@ def extract_file(
         return text, notes, "pptx-stdlib-v2"
     if suffix == ".pdf":
         text, notes = parse_pdf(path, ocr, ocr_lang, ocr_dpi, ocr_max_pages)
-        return text, notes, "pdf-pypdf-ocr-v1" if ocr else "pdf-pypdf-v1"
+        return text, notes, "pdf-pypdf-ocr-v2" if ocr else "pdf-pypdf-v1"
     if suffix in {".doc", ".xls", ".ppt"}:
         raise RuntimeError(
             f"Legacy Office format {suffix} is not supported. Save as DOCX, XLSX, or PPTX first, or use Claude's native file handling."
