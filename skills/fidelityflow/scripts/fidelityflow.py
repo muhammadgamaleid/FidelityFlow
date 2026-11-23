@@ -466,7 +466,7 @@ def _shape_region_marker(shape: ET.Element, marker: str) -> str | None:
         ("x", offset, "x"), ("y", offset, "y"),
         ("cx", extent, "cx"), ("cy", extent, "cy"),
     )}
-    if not all(value is not None and re.fullmatch(r"-?\\d+", value) for value in values.values()):
+    if not all(value is not None and re.fullmatch(r"-?\d+", value) for value in values.values()):
         return None
     non_visual = next((node for node in shape.iter() if local_name(node.tag) == "cNvPr"), None)
     object_id = non_visual.attrib.get("id", "?") if non_visual is not None else "?"
@@ -479,7 +479,7 @@ def _shape_region_marker(shape: ET.Element, marker: str) -> str | None:
 def parse_pptx(path: Path) -> tuple[str, list[str]]:
     notes = [
         "PPTX extraction preserves slide order, text, basic table content, shape alt text, speaker notes, and cached chart data.",
-        "Images, diagrams, animation, exact visual coordinates, and layout are not reconstructed; inspect the original slides for visual tasks.",
+        "Embedded picture object bounds are recorded in native slide EMUs when available; image content, diagrams, animation, and full visual layout are not reconstructed.",
         "Chart data is read from embedded cached values and may be stale if the workbook/chart source was not recalculated before saving.",
     ]
     output: list[str] = []
@@ -907,6 +907,71 @@ def build_source_map(
             location["line"] = line_number
             active = location
             events.append((start, dict(location)))
+        else:
+            dimensions = re.match(
+                r"^\\[IMAGE_DIMENSIONS width=(\\d+) height=(\\d+) coordinate_space=pixels\\]$",
+                stripped,
+            )
+            if dimensions:
+                events.append((start, {
+                    "_context": True,
+                    "image_dimensions": {
+                        "width": int(dimensions.group(1)),
+                        "height": int(dimensions.group(2)),
+                        "coordinate_space": "pixels",
+                    },
+                }))
+            else:
+                slide_dimensions = re.match(
+                    r"^\\[SLIDE_DIMENSIONS cx=(\\d+) cy=(\\d+) coordinate_space=EMU\\]$",
+                    stripped,
+                )
+                if slide_dimensions:
+                    events.append((start, {
+                        "_context": True,
+                        "slide_dimensions": {
+                            "cx": int(slide_dimensions.group(1)),
+                            "cy": int(slide_dimensions.group(2)),
+                            "coordinate_space": "EMU",
+                        },
+                    }))
+                else:
+                    ocr_region = re.match(
+                        r"^\\[OCR_LINE x=(\\d+):(\\d+) y=(\\d+):(\\d+) confidence=([0-9.]+)\\]",
+                        stripped,
+                    )
+                    image_region = re.match(
+                        r"^\\[IMAGE_REGION id=(\\S+) x=(-?\\d+) y=(-?\\d+) cx=(\\d+) cy=(\\d+) coordinate_space=slide_emu\\]$",
+                        stripped,
+                    )
+                    if ocr_region:
+                        events.append((start, {
+                            "_region": {
+                                "kind": "ocr_text_line",
+                                "bbox": {
+                                    "x": int(ocr_region.group(1)),
+                                    "y": int(ocr_region.group(3)),
+                                    "width": int(ocr_region.group(2)) - int(ocr_region.group(1)),
+                                    "height": int(ocr_region.group(4)) - int(ocr_region.group(3)),
+                                },
+                                "coordinate_space": "pixels",
+                                "confidence": float(ocr_region.group(5)),
+                            },
+                        }))
+                    elif image_region:
+                        events.append((start, {
+                            "_region": {
+                                "kind": "embedded_image",
+                                "object_id": image_region.group(1),
+                                "bbox": {
+                                    "x": int(image_region.group(2)),
+                                    "y": int(image_region.group(3)),
+                                    "width": int(image_region.group(4)),
+                                    "height": int(image_region.group(5)),
+                                },
+                                "coordinate_space": "slide_emu",
+                            },
+                        }))
 
         if suffix == ".xlsx" or active.get("kind") == "sheet":
             refs = re.findall(r"(?<![A-Za-z0-9_])([A-Z]{1,3}\d+)\s*(?==|formula=)", line)
@@ -925,20 +990,33 @@ def build_source_map(
     for chunk in chunks:
         while event_index < len(events) and events[event_index][0] < chunk["char_start"]:
             _, event = events[event_index]
-            if not event.get("cell_refs"):
+            if event.get("_context"):
+                active_location.update({key: value for key, value in event.items() if key != "_context"})
+            elif not event.get("cell_refs") and not event.get("_region"):
                 active_location = dict(event)
             event_index += 1
 
-        units = [{key: value for key, value in active_location.items() if key != "cell_refs"}]
+        units = [{key: value for key, value in active_location.items() if key not in {"cell_refs"}}]
         cell_refs = []
+        regions = []
         while event_index < len(events) and events[event_index][0] < chunk["char_end"]:
             _, event = events[event_index]
-            if event.get("cell_refs"):
+            if event.get("_region"):
+                region = dict(event["_region"])
+                if region.get("coordinate_space") == "pixels" and active_location.get("image_dimensions"):
+                    region["image_dimensions"] = active_location["image_dimensions"]
+                if region.get("coordinate_space") == "slide_emu" and active_location.get("slide_dimensions"):
+                    region["slide_dimensions"] = active_location["slide_dimensions"]
+                regions.append(region)
+            elif event.get("_context"):
+                active_location.update({key: value for key, value in event.items() if key != "_context"})
+            elif event.get("cell_refs"):
                 cell_refs.extend(event["cell_refs"])
             else:
                 unit = dict(event)
                 if unit not in units:
                     units.append(unit)
+                active_location = dict(event)
             event_index += 1
 
         location = {
@@ -949,10 +1027,12 @@ def build_source_map(
         }
         if cell_refs:
             location["cell_refs"] = list(dict.fromkeys(cell_refs))[:50]
+        if regions:
+            location["regions"] = regions[:500]
         mapped.append(location)
 
     summary = {
-        "version": 1,
+        "version": 2,
         "chunk_count": len(mapped),
         "located_chunks": sum(
             1 for item in mapped
@@ -964,6 +1044,7 @@ def build_source_map(
         "tables": counters["table"],
         "images": counters["image"],
         "charts": counters["chart"],
+        "regions": sum(len(item.get("regions", [])) for item in mapped),
     }
     return mapped, summary
 
