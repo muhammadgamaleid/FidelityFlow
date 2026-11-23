@@ -125,7 +125,7 @@ OCR is opt-in, processes only sparse-text PDF pages by default, and respects DPI
 | Lexical search and bounded excerpt retrieval | Yes | Yes |
 | Code-aware identifier matching and symbol-aware chunk boundaries | Yes | Yes |
 | Line-preserving excerpts centered around query matches | Yes | Yes |
-| Source mapping for PDF pages, PPTX slides, XLSX sheets/cells, Office tables/images, and OCR image identity | Yes | Yes |
+| Source mapping for pages/slides/sheets/cells, OCR pixel regions, and native PPTX image-object bounds | Yes | Yes |
 | Optional local multi-pass OCR with confidence and line coordinates | Not guaranteed in Skill VM | Yes, with OCR dependencies and Tesseract language data |
 | Optional visual geometry cues (OpenCV) | Not guaranteed in Skill VM | Yes, with the separate `vision` extra |
 | Exact repeated large `Read` suppression | — | Optional hook |
@@ -173,7 +173,7 @@ This reads usage fields present in the transcript. It does not estimate missing 
 
 The current release already includes conservative duplicate-result filtering, successful test-output compaction, PreCompact handoff guidance, local OCR, and lexical file retrieval. The remaining work is deeper than these initial safeguards:
 
-1. **File and image fidelity:** finer-grained source maps for image regions and Office object identities; OCR quality checks; safe image deduplication; chart and diagram understanding.
+1. **File and image fidelity:** DOCX floating-image/object geometry; richer chart and diagram region mapping; OCR quality calibration; safe image deduplication; semantic chart and diagram understanding.
 2. **Text and code retrieval:** semantic search, language-aware AST/LSP navigation, and stronger log and structured-document retrieval.
 3. **Tool and MCP processing:** schema-aware adapters, safe field projection, pagination-aware retrieval, and recoverable original results.
 4. **Session continuity:** structured checkpoints, memory lifecycle controls, contradiction handling, and supported cross-session recovery.
