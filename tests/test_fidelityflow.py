@@ -921,12 +921,12 @@ class SourceMappingTests(unittest.TestCase):
 
     def test_source_map_tracks_ocr_pixel_regions_and_image_dimensions(self):
         source = (
-            "[IMAGE: scan.png]\\n"
-            "[IMAGE_DIMENSIONS width=1200 height=800 coordinate_space=pixels]\\n"
-            "[OCR_QUALITY mean_word_confidence=91.0 psm=6]\\n"
-            "[OCR_LAYOUT]\\n"
-            "[OCR_LINE x=10:210 y=30:70 confidence=92] Revenue 2026\\n"
-            "[/OCR_LAYOUT]\\n"
+            "[IMAGE: scan.png]\n"
+            "[IMAGE_DIMENSIONS width=1200 height=800 coordinate_space=pixels]\n"
+            "[OCR_QUALITY mean_word_confidence=91.0 psm=6]\n"
+            "[OCR_LAYOUT]\n"
+            "[OCR_LINE x=10:210 y=30:70 confidence=92] Revenue 2026\n"
+            "[/OCR_LAYOUT]\n"
         )
         mapped, summary = self.module.build_source_map(source, ".png", max_chars=7000)
         self.assertEqual(summary["regions"], 1)
@@ -938,10 +938,10 @@ class SourceMappingTests(unittest.TestCase):
 
     def test_source_map_tracks_powerpoint_embedded_image_regions(self):
         source = (
-            "# Slide 3\\n"
-            "[SLIDE_DIMENSIONS cx=12192000 cy=6858000 coordinate_space=EMU]\\n"
-            "[IMAGE ALT TEXT: Sales chart]\\n"
-            "[IMAGE_REGION id=7 x=100000 y=200000 cx=3000000 cy=1800000 coordinate_space=slide_emu]\\n"
+            "# Slide 3\n"
+            "[SLIDE_DIMENSIONS cx=12192000 cy=6858000 coordinate_space=EMU]\n"
+            "[IMAGE ALT TEXT: Sales chart]\n"
+            "[IMAGE_REGION id=7 x=100000 y=200000 cx=3000000 cy=1800000 coordinate_space=slide_emu]\n"
         )
         mapped, summary = self.module.build_source_map(source, ".pptx", max_chars=7000)
         self.assertEqual(summary["regions"], 1)
