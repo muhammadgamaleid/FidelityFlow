@@ -322,6 +322,25 @@ class FidelityFlowCliTests(unittest.TestCase):
         self.assertEqual(connector["end"], "3:1")
         self.assertIn("connector#7 2:0 -> 3:1", module.format_source_location(mapped[0]))
 
+    def test_source_map_retains_raster_visual_objects_charts_and_relations(self):
+        module = load_module(CLI, "fidelityflow_raster_source_map_test")
+        source = (
+            "[IMAGE: diagram.png]\\n"
+            "[IMAGE_DIMENSIONS width=640 height=420 coordinate_space=pixels]\\n"
+            "[VISION_OBJECT id=1 type=rectangle x=100 y=120 w=160 h=80 confidence=0.72 label=Start coordinate_space=pixels]\\n"
+            "[VISION_CHART type=plot_candidate confidence=0.55 coordinate_space=pixels]\\n"
+            "[VISION_RELATION id=1 type=arrow_candidate x1=260 y1=160 x2=340 y2=160 confidence=0.45 coordinate_space=pixels]\\n"
+        )
+        mapped, summary = module.build_source_map(source, ".png", max_chars=7000)
+        kinds = {region["kind"] for region in mapped[0]["regions"]}
+        self.assertIn("visual_shape", kinds)
+        self.assertIn("visual_chart_candidate", kinds)
+        self.assertIn("visual_relation_candidate", kinds)
+        shape = next(region for region in mapped[0]["regions"] if region["kind"] == "visual_shape")
+        self.assertEqual(shape["ocr_label"], "Start")
+        self.assertEqual(shape["bbox"]["width"], 160)
+        self.assertIn("raster chart candidate", module.format_source_location(mapped[0]))
+
     def test_chart_parser_extracts_type_title_axes_legend_and_indexed_points(self):
         module = load_module(CLI, "fidelityflow_chart_semantics_test")
         chart = """<c:chartSpace xmlns:c="http://schemas.openxmlformats.org/drawingml/2006/chart">
