@@ -879,24 +879,27 @@ def build_source_map(
     events.sort(key=lambda item: item[0])
     chunks = split_chunks(text, max_chars=max_chars, source_suffix=source_suffix)
     mapped = []
+    event_index = 0
+    active_location: dict = dict(active)
     for chunk in chunks:
-        prior = [event for event_offset, event in events if event_offset < chunk["char_start"]]
-        current = [
-            event for event_offset, event in events
-            if chunk["char_start"] <= event_offset < chunk["char_end"]
-        ]
-        units = []
-        base = prior[-1][1] if prior else {"kind": "document"}
-        units.append({key: value for key, value in base.items() if key != "cell_refs"})
-        for _, event in current:
-            if event.get("cell_refs"):
-                continue
-            unit = {key: value for key, value in event.items() if key != "cell_refs"}
-            if unit not in units:
-                units.append(unit)
+        while event_index < len(events) and events[event_index][0] < chunk["char_start"]:
+            _, event = events[event_index]
+            if not event.get("cell_refs"):
+                active_location = dict(event)
+            event_index += 1
+
+        units = [{key: value for key, value in active_location.items() if key != "cell_refs"}]
         cell_refs = []
-        for _, event in current:
-            cell_refs.extend(event.get("cell_refs", []))
+        while event_index < len(events) and events[event_index][0] < chunk["char_end"]:
+            _, event = events[event_index]
+            if event.get("cell_refs"):
+                cell_refs.extend(event["cell_refs"])
+            else:
+                unit = dict(event)
+                if unit not in units:
+                    units.append(unit)
+            event_index += 1
+
         location = {
             "kind": units[-1].get("kind", "document") if len(units) == 1 else "multiple",
             "locations": units,
