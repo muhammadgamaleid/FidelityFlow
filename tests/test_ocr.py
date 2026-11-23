@@ -26,7 +26,7 @@ class OptionalOCRTests(unittest.TestCase):
         cli = load_module(CLI_PATH, "fidelityflow_ocr_cli_test")
         image = Path("example.png")
         self.assertIsNone(cli.expected_extractor(image, ocr=False))
-        self.assertEqual(cli.expected_extractor(image, ocr=True), "image-ocr-tesseract-v1")
+        self.assertEqual(cli.expected_extractor(image, ocr=True), "image-ocr-tesseract-v2")
 
     def test_image_ocr_enforces_size_limit_before_loading_dependencies(self):
         engine = load_module(OCR_PATH, "fidelityflow_ocr_engine_size_test")
