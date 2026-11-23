@@ -80,6 +80,16 @@ class OptionalOCRTests(unittest.TestCase):
         self.assertIn("confidence=85", lines[0])
         self.assertTrue(lines[0].endswith("Hello world"))
 
+
+    def test_ocr_layout_preserves_right_to_left_word_order(self):
+        engine = load_module(OCR_PATH, "fidelityflow_ocr_rtl_test")
+        words = [
+            {"text": "العالم", "confidence": 90, "left": 80, "top": 10, "width": 30, "height": 12, "block": 1, "paragraph": 1, "line": 1},
+            {"text": "مرحبا", "confidence": 90, "left": 10, "top": 10, "width": 40, "height": 12, "block": 1, "paragraph": 1, "line": 1},
+        ]
+        line = engine._layout_lines(words)[0]
+        self.assertTrue(line.endswith("العالم مرحبا"))
+
     def test_formatted_ocr_does_not_duplicate_recognized_text(self):
         engine = load_module(OCR_PATH, "fidelityflow_ocr_format_test")
         engine.analyze_visual_structure = lambda image: []
