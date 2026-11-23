@@ -884,5 +884,48 @@ class InstallerTests(unittest.TestCase):
             self.assertFalse((base / "skills" / "fidelityflow").exists())
 
 
+class SourceMappingTests(unittest.TestCase):
+    def setUp(self):
+        self.module = load_module(CLI, "fidelityflow_source_mapping_test")
+
+    def test_source_map_tracks_multiple_pdf_pages_across_chunks(self):
+        source = "[PAGE 1]\n" + ("first page text\n" * 60) + "[PAGE 2]\n" + ("second page text\n" * 60)
+        mapped, summary = self.module.build_source_map(source, ".pdf", max_chars=500)
+        self.assertEqual(len(mapped), len(self.module.split_chunks(source, 500, ".pdf")))
+        self.assertIn(1, summary["pages"])
+        self.assertIn(2, summary["pages"])
+        self.assertTrue(all(item["line_start"] <= item["line_end"] for item in mapped))
+
+    def test_source_map_tracks_xlsx_sheet_and_cell_addresses(self):
+        source = "# Sheet: Revenue\nA1=Total | B1=100\nA2=Net income | B2=80\n"
+        mapped, summary = self.module.build_source_map(source, ".xlsx", max_chars=500)
+        self.assertEqual(summary["sheets"], ["Revenue"])
+        refs = mapped[0]["cell_refs"]
+        self.assertEqual(refs, ["A1", "B1", "A2", "B2"])
+        self.assertIn("sheet=Revenue", self.module.format_source_location(mapped[0]))
+
+    def test_source_map_tracks_pptx_slides_tables_and_images(self):
+        source = (
+            "# Slide 1\nIntro\n[TABLE]\nName | Value\n[/TABLE]\n"
+            "# Slide 2\n[IMAGE ALT TEXT: Revenue chart]\nConclusion\n"
+        )
+        mapped, summary = self.module.build_source_map(source, ".pptx", max_chars=500)
+        self.assertEqual(summary["slides"], [1, 2])
+        self.assertEqual(summary["tables"], 1)
+        self.assertEqual(summary["images"], 1)
+        rendered = " ".join(self.module.format_source_location(item) for item in mapped)
+        self.assertIn("slide=1", rendered)
+        self.assertIn("slide=2", rendered)
+        self.assertIn("table=1", rendered)
+        self.assertIn("image=1", rendered)
+
+    def test_source_map_summary_does_not_claim_visual_geometry(self):
+        source = "# Slide 1\n[IMAGE: no alternative text provided]\n"
+        mapped, summary = self.module.build_source_map(source, ".pptx")
+        self.assertEqual(summary["version"], 1)
+        self.assertNotIn("coordinates", summary)
+        self.assertIn("image=1", self.module.format_source_location(mapped[0]))
+
+
 if __name__ == "__main__":
     unittest.main()
