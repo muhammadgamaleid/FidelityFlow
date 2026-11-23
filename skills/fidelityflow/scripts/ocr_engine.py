@@ -9,7 +9,9 @@ from __future__ import annotations
 from collections import defaultdict
 from pathlib import Path
 import shutil
-import unicodedata\nimport re\nimport math
+import unicodedata
+import re
+import math
 
 MAX_IMAGE_BYTES = 100 * 1024 * 1024
 MAX_IMAGE_PIXELS = 80_000_000
