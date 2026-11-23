@@ -64,19 +64,32 @@ python install.py --scope project
 
 This copies the Skill under the project's `.claude/skills/fidelityflow` directory. Machine-specific hooks are user-scope only.
 
-## Claude Code — load the Plugin for development
+## Claude Code — install the Plugin from GitHub
 
-To test the Plugin from a local checkout:
+The repository includes `.claude-plugin/marketplace.json`. If the repository is reachable to your Git credentials (private repositories require access), install it from a terminal:
 
 ~~~bash
-git clone https://github.com/muhammadgamaleid/FidelityFlow.git
-cd FidelityFlow
+claude plugin marketplace add muhammadgamaleid/FidelityFlow
+claude plugin install fidelityflow@fidelityflow --scope user
+claude plugin list
+~~~
+
+To update or remove it:
+
+~~~bash
+claude plugin update fidelityflow@fidelityflow
+claude plugin uninstall fidelityflow@fidelityflow
+~~~
+
+The Plugin provides the Skill component. It does not install the Python runtime or activate the optional Python hooks; use the installer above for those capabilities.
+
+To load a local checkout for one development session without installing it:
+
+~~~bash
 claude --plugin-dir .
 ~~~
 
-This loads the plugin for that Claude Code session. It is a development/test workflow and does not install the Python package or enable the optional hooks. For a persistent local Skill + CLI + hooks setup, use the preceding installer instructions.
-
-Claude Code's plugin distribution mechanisms and third-party marketplace policies can change. Check the current [Claude Code Plugins documentation](https://code.claude.com/docs/en/plugins) before publishing or distributing a marketplace-based installation route.
+See the official [Claude Code plugin installation guide](https://code.claude.com/docs/en/plugins/install) and [marketplace reference](https://code.claude.com/docs/en/plugins/marketplace-reference).
 
 ## Optional local OCR and visual candidates
 
