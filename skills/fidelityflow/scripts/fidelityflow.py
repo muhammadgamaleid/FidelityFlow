@@ -1233,18 +1233,22 @@ def build_source_map(
                 "bbox": {"x": int(vision_object.group(3)), "y": int(vision_object.group(4)),
                          "width": int(vision_object.group(5)), "height": int(vision_object.group(6))},
                 "confidence": float(vision_object.group(7)),
+                "image_dimensions": current_image_dimensions,
                 "ocr_label": None if vision_object.group(8) == "none" else vision_object.group(8),
                 "coordinate_space": "pixels",
             }))
             continue
         vision_chart = re.match(
-            r"^\[VISION_CHART type=(\S+) confidence=([0-9.]+) coordinate_space=pixels\]$",
+            r"^\[VISION_CHART type=(\S+) x=(\d+) y=(\d+) w=(\d+) h=(\d+) confidence=([0-9.]+) coordinate_space=pixels\]$",
             marker,
         )
         if vision_chart:
             region_events.append((line_start, {
                 "kind": "visual_chart_candidate", "chart_type": vision_chart.group(1),
-                "confidence": float(vision_chart.group(2)), "coordinate_space": "pixels",
+                "bbox": {"x": int(vision_chart.group(2)), "y": int(vision_chart.group(3)),
+                         "width": int(vision_chart.group(4)), "height": int(vision_chart.group(5))},
+                "confidence": float(vision_chart.group(6)), "coordinate_space": "pixels",
+                "image_dimensions": current_image_dimensions,
             }))
             continue
         vision_relation = re.match(
@@ -1258,6 +1262,7 @@ def build_source_map(
                 "start": {"x": int(vision_relation.group(3)), "y": int(vision_relation.group(4))},
                 "end": {"x": int(vision_relation.group(5)), "y": int(vision_relation.group(6))},
                 "confidence": float(vision_relation.group(7)), "coordinate_space": "pixels",
+                "image_dimensions": current_image_dimensions,
             }))
             continue
         connector_match = re.match(
