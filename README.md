@@ -127,14 +127,14 @@ OCR is opt-in, processes only sparse-text PDF pages by default, and respects DPI
 | Line-preserving excerpts centered around query matches | Yes | Yes |
 | Source mapping for pages/slides/sheets/cells, OCR pixel regions, DOCX floating-picture anchors, and native PPTX picture/chart-frame bounds | Yes | Yes |
 | Optional local multi-pass OCR with confidence and line coordinates | Not guaranteed in Skill VM | Yes, with OCR dependencies and Tesseract language data |
-| Optional visual geometry cues (OpenCV) | Not guaranteed in Skill VM | Yes, with the separate `vision` extra |
+| Optional raster visual candidates (OpenCV) | Not guaranteed in Skill VM | Yes, with the separate `vision` extra; candidate shapes, plot-like axes, proximity-linked OCR labels, and possible arrows |
 | Exact repeated large `Read` suppression | — | Optional hook |
 | Exact repeated plain-text search and MCP results | — | Optional hook; one repeat only, with recovery read |
 | Narrow successful test-output compaction | — | Optional hook; original stdout archived locally |
 | PreCompact context handoff guidance | — | Optional hook; guides Claude's native compaction |
 | Evidence-backed project memory | — | Local SQLite |
 
-**Not implemented yet:** general schema-aware MCP/web-result reduction, full AST/LSP navigation, semantic retrieval, model-based visual understanding of chart/diagram meaning, audio/video processing, and independently validated end-to-end savings across representative tasks.
+**Still limited:** raster chart values and series are not reconstructed reliably from pixels; semantic flowchart interpretation, robust arrow topology, embedded Office-image OCR, model-based visual reasoning, audio/video processing, and independently validated end-to-end savings remain future work. The current vision pass emits conservative geometric candidates, not authoritative semantic conclusions.
 
 Search is lexical, not semantic. Office extraction is text-oriented and does not fully reconstruct visual layout, charts, embedded objects, or spreadsheet calculation behavior.
 
