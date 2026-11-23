@@ -173,7 +173,7 @@ This reads usage fields present in the transcript. It does not estimate missing 
 
 The current release already includes conservative duplicate-result filtering, successful test-output compaction, PreCompact handoff guidance, local OCR, and lexical file retrieval. The remaining work is deeper than these initial safeguards:
 
-1. **File and image fidelity:** DOCX floating-image/object geometry; richer chart and diagram region mapping; OCR quality calibration; safe image deduplication; semantic chart and diagram understanding.
+1. **Remaining file and image fidelity:** OCR quality calibration, safe image deduplication, and semantic chart/diagram understanding beyond the structural source geometry now available for DOCX, PPTX, XLSX, PDF, and OCR regions.
 2. **Text and code retrieval:** semantic search, language-aware AST/LSP navigation, and stronger log and structured-document retrieval.
 3. **Tool and MCP processing:** schema-aware adapters, safe field projection, pagination-aware retrieval, and recoverable original results.
 4. **Session continuity:** structured checkpoints, memory lifecycle controls, contradiction handling, and supported cross-session recovery.
