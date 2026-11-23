@@ -102,7 +102,9 @@ class OptionalOCRTests(unittest.TestCase):
             "confidence": 85.0,
             "psm": 6,
         }
-        output = engine._format_result(result, object(), "sample.png")
+        image = Mock()
+        image.size = (100, 50)
+        output = engine._format_result(result, image, "sample.png")
         self.assertEqual(output.count("alpha"), 1)
         self.assertEqual(output.count("beta"), 1)
         self.assertIn("mean_word_confidence=85.0", output)
