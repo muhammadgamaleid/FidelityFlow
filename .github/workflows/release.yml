@@ -2,11 +2,17 @@ name: release
 
 on:
   push:
+    branches:
+      - "release/v0.6.0"
     tags:
       - "v*"
 
 permissions:
   contents: write
+
+concurrency:
+  group: fidelityflow-release-v0.6.0
+  cancel-in-progress: false
 
 jobs:
   build-and-publish:
@@ -33,9 +39,24 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create "${GITHUB_REF_NAME}" \
+          gh release create "v0.6.0" \
             dist/fidelityflow-claude-ai.zip \
             dist/fidelityflow-plugin.zip \
             dist/SHA256SUMS.txt \
-            --title "FidelityFlow ${GITHUB_REF_NAME}" \
+            --target "${GITHUB_SHA}" \
+            --title "FidelityFlow v0.6.0" \
             --generate-notes
+      - name: Keep main as the only long-lived branch
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          for branch in \
+            "feature/source-mapping-v0.6" \
+            "release/v0.6.0-professionalization" \
+            "dependabot/github_actions/actions/setup-python-7" \
+            "release/v0.6.0"; do
+            if gh api "repos/${GITHUB_REPOSITORY}/branches/${branch}" >/dev/null 2>&1; then
+              gh api --method DELETE "repos/${GITHUB_REPOSITORY}/git/refs/heads/${branch}"
+              echo "Deleted branch: ${branch}"
+            fi
+          done
