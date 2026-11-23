@@ -834,6 +834,7 @@ def build_source_map(
     active: dict = {"kind": "image", "image": 1} if suffix in OCR_IMAGE_SUFFIXES else {"kind": "document"}
     if suffix in OCR_IMAGE_SUFFIXES:
         counters["image"] = 1
+    initial_location = dict(active)
 
     for start, end, line_number, line in lines:
         stripped = line.strip()
@@ -880,7 +881,7 @@ def build_source_map(
     chunks = split_chunks(text, max_chars=max_chars, source_suffix=source_suffix)
     mapped = []
     event_index = 0
-    active_location: dict = dict(active)
+    active_location: dict = initial_location
     for chunk in chunks:
         while event_index < len(events) and events[event_index][0] < chunk["char_start"]:
             _, event = events[event_index]
