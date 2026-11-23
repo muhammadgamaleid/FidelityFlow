@@ -75,7 +75,7 @@ def _orientation(image, pytesseract) -> tuple[object, str | None]:
     return image, None
 
 
-def _preprocess_variants(image, ImageOps, ImageEnhance, ImageFilter):
+def _preprocess_variants(image, Image, ImageOps, ImageEnhance, ImageFilter):
     """Return a small bounded set of OCR-friendly variants."""
     gray = ImageOps.grayscale(image)
     gray = ImageOps.autocontrast(gray, cutoff=1)
@@ -141,7 +141,7 @@ def _best_ocr(image, language: str):
     pytesseract, Image, ImageEnhance, ImageFilter, ImageOps = _dependencies()
     _validate_languages(pytesseract, language)
     oriented, rotation_note = _orientation(image, pytesseract)
-    variants = _preprocess_variants(oriented, ImageOps, ImageEnhance, ImageFilter)
+    variants = _preprocess_variants(oriented, Image, ImageOps, ImageEnhance, ImageFilter)
     best = None
     for _, candidate in variants:
         for psm in (6, 11):
@@ -325,7 +325,7 @@ def extract_pdf_pages(
         return {}, []
     _, Image, *_ = _dependencies()
     try:
-        import fitz  # type: ignore
+        import pymupdf as fitz  # type: ignore
     except ImportError as exc:
         raise RuntimeError(
             "Scanned PDF OCR requires PyMuPDF. Install with "
@@ -389,7 +389,7 @@ def doctor() -> dict:
     except ImportError:
         pass
     try:
-        import fitz  # type: ignore
+        import pymupdf as fitz  # type: ignore
         result["pymupdf_available"] = True
         result["pymupdf_version"] = getattr(fitz, "VersionBind", "unknown")
     except ImportError:
