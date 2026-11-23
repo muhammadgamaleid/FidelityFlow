@@ -50,6 +50,8 @@ The bundled file-processing implementation is scripts/fidelityflow.py inside the
 
 Current extractors cover text/code, Markdown, CSV/TSV, JSON/JSONL, YAML, XML/HTML, DOCX, XLSX, PPTX, and PDF text when optional pypdf is installed.
 
+Optional local OCR (`--ocr`) processes standalone images and sparse-text PDF pages. Its bounded multi-pass pipeline applies contrast normalization, conditional upscaling/sharpening, thresholding, multiple Tesseract segmentation modes, confidence scoring, and confidence-gated orientation correction. Extracted lines retain approximate pixel bounding boxes and mean word confidence; Arabic right-to-left line order is handled conservatively. The optional `vision` extra uses OpenCV to report geometric evidence (line orientations and contours) without inferring chart values, arrow direction, or diagram semantics. Image and OCR-PDF extractor identities are versioned separately so old cached OCR output is not silently reused after pipeline changes. Tesseract, language data, and native libraries remain external local dependencies.
+
 The local cache is content-addressed by source hash, extractor version, chunk settings, and OCR settings. It stores extracted content once and stores chunk offsets/metadata separately. It does not modify the source file.
 
 Search is lexical (BM25-style), not semantic. It expands common code identifiers into component terms, prefers Markdown headings and common code symbol boundaries when chunking, and returns line-preserving excerpts centered around query matches. The show command retrieves a complete indexed chunk when necessary.
