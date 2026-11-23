@@ -325,7 +325,7 @@ def analyze_visual_structure(image, words: list[dict] | None = None, ocr_size=No
             for word in normalized_words:
                 wx, wy = word["x"], word["y"]
                 wr, wb = wx + word["width"], wy + word["height"]
-                margin = max(8, int(min(w, h) * 0.12))
+                margin = max(18, int(min(w, h) * 0.18))
                 if wx <= right + margin and wr >= x - margin and wy <= bottom + margin and wb >= y - margin:
                     labels.append(word["text"])
             label = re.sub(r"[^\w.-]+", "_", " ".join(labels), flags=re.UNICODE)[:100] or "none"
