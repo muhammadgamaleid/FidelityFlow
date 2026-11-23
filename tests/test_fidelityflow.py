@@ -919,10 +919,43 @@ class SourceMappingTests(unittest.TestCase):
         self.assertIn("table=1", rendered)
         self.assertIn("image=1", rendered)
 
+    def test_source_map_tracks_ocr_pixel_regions_and_image_dimensions(self):
+        source = (
+            "[IMAGE: scan.png]\\n"
+            "[IMAGE_DIMENSIONS width=1200 height=800 coordinate_space=pixels]\\n"
+            "[OCR_QUALITY mean_word_confidence=91.0 psm=6]\\n"
+            "[OCR_LAYOUT]\\n"
+            "[OCR_LINE x=10:210 y=30:70 confidence=92] Revenue 2026\\n"
+            "[/OCR_LAYOUT]\\n"
+        )
+        mapped, summary = self.module.build_source_map(source, ".png", max_chars=7000)
+        self.assertEqual(summary["regions"], 1)
+        region = mapped[0]["regions"][0]
+        self.assertEqual(region["kind"], "ocr_text_line")
+        self.assertEqual(region["bbox"], {"x": 10, "y": 30, "width": 200, "height": 40})
+        self.assertEqual(region["image_dimensions"]["width"], 1200)
+        self.assertIn("OCR bbox(px)=10,30,200,40", self.module.format_source_location(mapped[0]))
+
+    def test_source_map_tracks_powerpoint_embedded_image_regions(self):
+        source = (
+            "# Slide 3\\n"
+            "[SLIDE_DIMENSIONS cx=12192000 cy=6858000 coordinate_space=EMU]\\n"
+            "[IMAGE ALT TEXT: Sales chart]\\n"
+            "[IMAGE_REGION id=7 x=100000 y=200000 cx=3000000 cy=1800000 coordinate_space=slide_emu]\\n"
+        )
+        mapped, summary = self.module.build_source_map(source, ".pptx", max_chars=7000)
+        self.assertEqual(summary["regions"], 1)
+        region = mapped[0]["regions"][0]
+        self.assertEqual(region["kind"], "embedded_image")
+        self.assertEqual(region["object_id"], "7")
+        self.assertEqual(region["slide_dimensions"]["cx"], 12192000)
+        self.assertIn("image#7 bbox(EMU)=100000,200000,3000000,1800000",
+                      self.module.format_source_location(mapped[0]))
+
     def test_source_map_summary_does_not_claim_visual_geometry(self):
         source = "# Slide 1\n[IMAGE: no alternative text provided]\n"
         mapped, summary = self.module.build_source_map(source, ".pptx")
-        self.assertEqual(summary["version"], 1)
+        self.assertEqual(summary["version"], 2)
         self.assertNotIn("coordinates", summary)
         self.assertIn("image=1", self.module.format_source_location(mapped[0]))
 
