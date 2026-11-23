@@ -154,76 +154,94 @@ def _docx_table_text(table: ET.Element) -> list[str]:
     return rows
 
 
+def _docx_drawing_markers(paragraph: ET.Element, relationships: dict[str, str]) -> list[str]:
+    """Describe inline and floating Word pictures using native DrawingML anchors."""
+    markers = []
+    for drawing in (node for node in paragraph.iter() if local_name(node.tag) in {"inline", "anchor"}):
+        extent = next((node for node in drawing if local_name(node.tag) == "extent"), None)
+        doc_pr = next((node for node in drawing if local_name(node.tag) == "docPr"), None)
+        blip = next((node for node in drawing.iter() if local_name(node.tag) == "blip"), None)
+        if extent is None or doc_pr is None:
+            continue
+        cx, cy = extent.attrib.get("cx"), extent.attrib.get("cy")
+        if not (cx and cy and cx.isdigit() and cy.isdigit()):
+            continue
+        rel_id = next((value for key, value in (blip.attrib.items() if blip is not None else [])
+                       if local_name(key) == "embed"), "")
+        target = relationships.get(rel_id, "")
+        fields = [f"id={doc_pr.attrib.get('id', '?')}", f"cx={cx}", f"cy={cy}",
+                  f"layout={'floating' if local_name(drawing.tag) == 'anchor' else 'inline'}"]
+        if rel_id:
+            fields.append(f"rel={rel_id}")
+        if target:
+            fields.append(f"target={target.replace(' ', '%20')}")
+        if local_name(drawing.tag) == "anchor":
+            for axis, tag in (("x", "positionH"), ("y", "positionV")):
+                position = next((node for node in drawing if local_name(node.tag) == tag), None)
+                if position is not None:
+                    value = next((node for node in position if local_name(node.tag) in {"posOffset", "align"}), None)
+                    if value is not None and value.text is not None:
+                        fields.extend([f"{axis}={value.text.strip()}", f"relative_{axis}={position.attrib.get('relativeFrom', 'unknown')}"])
+        markers.append("[DOCX_IMAGE_REGION " + " ".join(fields) + "]")
+    return markers
+
+
 def extract_docx(path: Path) -> tuple[str, list[str]]:
     notes = [
         "DOCX extraction preserves paragraph order, heading styles, table text, tracked insertions/deletions, headers, footers, footnotes, endnotes, and comments.",
-        "Pagination, floating-object geometry, embedded media, and exact visual layout are not reproduced.",
+        "Inline and floating picture objects expose native DrawingML extent, object ID, relationship target, and anchor offsets/alignment when present; this is not page-layout reconstruction.",
+        "Word anchor offsets are relative to their declared reference frame and are not converted to absolute page coordinates.",
     ]
     output: list[str] = []
-
-    def append_part(title: str, root: ET.Element) -> None:
-        part_lines: list[str] = []
-
-        def visit(container: ET.Element) -> None:
-            for child in list(container):
-                kind = local_name(child.tag)
-                if kind == "p":
-                    text = docx_xml_text(child).strip()
-                    if not text:
-                        continue
-                    style = next((
-                        node.attrib.get(
-                            "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}val"
-                        )
-                        for node in child.iter() if local_name(node.tag) == "pStyle"
-                    ), "")
-                    if style and style.lower().startswith("heading"):
-                        level_match = re.search(r"(\d+)", style)
-                        level = min(int(level_match.group(1)), 6) if level_match else 2
-                        part_lines.append("#" * level + " " + text)
-                    else:
-                        part_lines.append(text)
-                elif kind == "tbl":
-                    rows = _docx_table_text(child)
-                    if rows:
-                        part_lines.extend(["[TABLE]", *rows, "[/TABLE]"])
-                else:
-                    # Notes and comments are nested below note/comment records,
-                    # unlike the direct paragraph children in word/document.xml.
-                    visit(child)
-
-        visit(root)
-        if part_lines:
-            output.append(f"## {title}")
-            output.extend(part_lines)
-
     with zipfile.ZipFile(path) as archive:
         validate_ooxml_archive(archive)
         names = set(archive.namelist())
+        relationships = _relationship_targets(archive, "word/_rels/document.xml.rels")
+
+        def append_part(title: str, root: ET.Element, include_drawing_markers: bool = False) -> None:
+            part_lines: list[str] = []
+            def visit(container: ET.Element) -> None:
+                for child in list(container):
+                    kind = local_name(child.tag)
+                    if kind == "p":
+                        value = docx_xml_text(child).strip()
+                        if value:
+                            style = next((node.attrib.get("{http://schemas.openxmlformats.org/wordprocessingml/2006/main}val")
+                                          for node in child.iter() if local_name(node.tag) == "pStyle"), "")
+                            if style and style.lower().startswith("heading"):
+                                level_match = re.search(r"(\d+)", style)
+                                level = min(int(level_match.group(1)), 6) if level_match else 2
+                                part_lines.append("#" * level + " " + value)
+                            else:
+                                part_lines.append(value)
+                        if include_drawing_markers:
+                            part_lines.extend(_docx_drawing_markers(child, relationships))
+                    elif kind == "tbl":
+                        rows = _docx_table_text(child)
+                        if rows:
+                            part_lines.extend(["[TABLE]", *rows, "[/TABLE]"])
+                    else:
+                        visit(child)
+            visit(root)
+            if part_lines:
+                output.append(f"## {title}")
+                output.extend(part_lines)
+
         document = ET.fromstring(read_ooxml_xml_member(archive, "word/document.xml"))
         body = next((node for node in document.iter() if local_name(node.tag) == "body"), None)
         if body is None:
             raise ValueError("DOCX has no document body")
-        append_part("Document body", body)
-
-        for member in sorted(
-            name for name in names
-            if re.fullmatch(r"word/(?:header|footer)\d+\.xml", name)
-        ):
+        append_part("Document body", body, include_drawing_markers=True)
+        for member in sorted(name for name in names if re.fullmatch(r"word/(?:header|footer)\d+\.xml", name)):
             root = ET.fromstring(read_ooxml_xml_member(archive, member))
             label = Path(member).stem.replace("header", "Header ").replace("footer", "Footer ")
             append_part(label, root)
-
-        for member, label in (
-            ("word/footnotes.xml", "Footnotes"),
-            ("word/endnotes.xml", "Endnotes"),
-            ("word/comments.xml", "Comments"),
-        ):
+        for member, label in (("word/footnotes.xml", "Footnotes"), ("word/endnotes.xml", "Endnotes"),
+                              ("word/comments.xml", "Comments")):
             if member in names:
-                root = ET.fromstring(read_ooxml_xml_member(archive, member))
-                append_part(label, root)
-
+                append_part(label, ET.fromstring(read_ooxml_xml_member(archive, member)))
     return "\n\n".join(output).rstrip(), notes
+
 def _chart_cache_values(parent: ET.Element | None) -> list[str]:
     if parent is None:
         return []
@@ -520,6 +538,8 @@ def parse_pptx(path: Path) -> tuple[str, list[str]]:
                     )
                     if non_visual is not None:
                         shape_name = non_visual.attrib.get("name")
+                        object_name = re.sub(r"[^A-Za-z0-9_.-]+", "_", shape_name or "unnamed")
+                        output.append(f"[OFFICE_OBJECT id={non_visual.attrib.get('id', '?')} name={object_name} kind=shape]")
                         alternative = non_visual.attrib.get("descr") or non_visual.attrib.get("title")
                         if alternative:
                             output.append(f"[SHAPE ALT TEXT: {alternative}]")
@@ -565,6 +585,19 @@ def parse_pptx(path: Path) -> tuple[str, list[str]]:
                         output.append(region_marker)
 
                 elif kind == "graphicFrame":
+                    non_visual = next((node for node in shape.iter() if local_name(node.tag) == "cNvPr"), None)
+                    if non_visual is not None:
+                        chart_rel = next((node.attrib.get("id") for node in shape.iter()
+                                          if local_name(node.tag) == "chart" and node.attrib.get("id")), "")
+                        chart_target = relationships.get(chart_rel, "")
+                        frame_marker = _shape_region_marker(shape, "CHART_REGION")
+                        if frame_marker:
+                            frame_marker = frame_marker.replace("[CHART_REGION ", "[CHART_REGION ", 1)
+                            output.append(frame_marker)
+                        object_name = re.sub(r"[^A-Za-z0-9_.-]+", "_", non_visual.attrib.get("name", "unnamed"))
+                        output.append(f"[OFFICE_OBJECT id={non_visual.attrib.get('id', '?')} name={object_name} kind=graphicFrame]")
+                        if chart_rel:
+                            output.append(f"[CHART_REFERENCE rel={chart_rel} target={chart_target or 'unknown'}]")
                     rows = []
                     for row in shape.iter():
                         if local_name(row.tag) == "tr":
@@ -1027,22 +1060,42 @@ def build_source_map(
             }))
             continue
         picture_match = re.match(
-            r"^\[IMAGE_REGION id=(\S+) x=(-?\d+) y=(-?\d+) cx=(\d+) cy=(\d+) coordinate_space=slide_emu\]$",
+            r"^\\[(IMAGE|CHART)_REGION id=(\\S+) x=(-?\\d+) y=(-?\\d+) cx=(\\d+) cy=(\\d+) coordinate_space=slide_emu\\]$",
             marker,
         )
         if picture_match:
             region_events.append((line_start, {
-                "kind": "embedded_image",
-                "object_id": picture_match.group(1),
-                "bbox": {
-                    "x": int(picture_match.group(2)),
-                    "y": int(picture_match.group(3)),
-                    "width": int(picture_match.group(4)),
-                    "height": int(picture_match.group(5)),
-                },
-                "coordinate_space": "slide_emu",
-                "slide_dimensions": current_slide_dimensions,
+                "kind": "embedded_image" if picture_match.group(1) == "IMAGE" else "chart_frame",
+                "object_id": picture_match.group(2),
+                "bbox": {"x": int(picture_match.group(3)), "y": int(picture_match.group(4)),
+                         "width": int(picture_match.group(5)), "height": int(picture_match.group(6))},
+                "coordinate_space": "slide_emu", "slide_dimensions": current_slide_dimensions,
             }))
+            continue
+        docx_match = re.match(r"^\\[DOCX_IMAGE_REGION (.+)\\]$", marker)
+        if docx_match:
+            fields = dict(re.findall(r"(\\w+)=([^ ]+)", docx_match.group(1)))
+            region = {"kind": "docx_picture", "object_id": fields.get("id"), "layout": fields.get("layout"),
+                      "extent_emu": {"width": int(fields["cx"]), "height": int(fields["cy"])}}
+            if fields.get("target"):
+                region["media_target"] = fields["target"]
+            if fields.get("rel"):
+                region["relationship_id"] = fields["rel"]
+            for axis in ("x", "y"):
+                if axis in fields:
+                    try:
+                        region.setdefault("anchor", {})[axis] = int(fields[axis])
+                    except ValueError:
+                        region.setdefault("anchor", {})[axis + "_alignment"] = fields[axis]
+                if "relative_" + axis in fields:
+                    region.setdefault("anchor", {})["relative_" + axis] = fields["relative_" + axis]
+            region["coordinate_space"] = "word_anchor_relative" if fields.get("layout") == "floating" else "inline_extent"
+            region_events.append((line_start, region))
+            continue
+        office_match = re.match(r"^\\[OFFICE_OBJECT id=(\\S+) name=(\\S+) kind=(\\S+)\\]$", marker)
+        if office_match:
+            region_events.append((line_start, {"kind": "office_object", "object_id": office_match.group(1),
+                                              "name": office_match.group(2), "object_type": office_match.group(3)}))
 
     events.sort(key=lambda item: item[0])
     if chunks is None:
@@ -1148,11 +1201,15 @@ def format_source_location(location: dict | None) -> str:
                     f"{bbox.get('x')},{bbox.get('y')},{bbox.get('width')},{bbox.get('height')}"
                     f" conf={region.get('confidence', '?')}"
                 )
-            elif region.get("kind") == "embedded_image":
-                rendered.append(
-                    f"image#{region.get('object_id')} bbox(EMU)="
-                    f"{bbox.get('x')},{bbox.get('y')},{bbox.get('width')},{bbox.get('height')}"
-                )
+            elif region.get("kind") in {"embedded_image", "chart_frame"}:
+                rendered.append(f"{region.get('kind')}#{region.get('object_id')} bbox(EMU)="
+                                f"{bbox.get('x')},{bbox.get('y')},{bbox.get('width')},{bbox.get('height')}")
+            elif region.get("kind") == "docx_picture":
+                anchor = region.get("anchor", {})
+                rendered.append(f"DOCX image#{region.get('object_id')} {region.get('layout')} "
+                                f"extent(EMU)={region.get('extent_emu', {}).get('width')}x{region.get('extent_emu', {}).get('height')} anchor={anchor}")
+            elif region.get("kind") == "office_object":
+                rendered.append(f"Office {region.get('object_type')}#{region.get('object_id')} {region.get('name')}")
         if len(regions) > 3:
             rendered.append(f"+{len(regions) - 3} more regions")
     rendered.append(f"lines={location.get('line_start', '?')}-{location.get('line_end', '?')}")
