@@ -122,9 +122,14 @@ OCR is opt-in, processes only sparse-text PDF pages by default, and respects DPI
 |---|:---:|:---:|
 | Extract text, code, DOCX, XLSX, PPTX, and PDF text | Yes, when source files are exposed to the Skill workspace | Yes |
 | Local content-addressed cache | Workspace lifetime; persistence is not guaranteed | Persistent local cache |
-| Lexical search and bounded excerpt retrieval | Yes | Yes |\n| Code-aware identifier matching and symbol-aware chunk boundaries | Yes | Yes |\n| Line-preserving excerpts centered around query matches | Yes | Yes |\n| Optional local OCR for images and sparse-text PDF pages | Not guaranteed in Skill VM | Yes, with OCR dependencies |
+| Lexical search and bounded excerpt retrieval | Yes | Yes |
+| Code-aware identifier matching and symbol-aware chunk boundaries | Yes | Yes |
+| Line-preserving excerpts centered around query matches | Yes | Yes |
+| Optional local OCR for images and sparse-text PDF pages | Not guaranteed in Skill VM | Yes, with OCR dependencies |
 | Exact repeated large `Read` suppression | — | Optional hook |
-| Narrow successful test-output compaction | — | Optional hook |
+| Exact repeated plain-text search and MCP results | — | Optional hook; one repeat only, with recovery read |
+| Narrow successful test-output compaction | — | Optional hook; original stdout archived locally |
+| PreCompact context handoff guidance | — | Optional hook; guides Claude's native compaction |
 | Evidence-backed project memory | — | Local SQLite |
 
 **Not implemented yet:** general schema-aware MCP/web-result reduction, full AST/LSP navigation, semantic retrieval, visual image understanding beyond OCR, audio/video processing, and independently validated end-to-end savings across representative tasks.
@@ -164,14 +169,15 @@ This reads usage fields present in the transcript. It does not estimate missing 
 
 ## Roadmap
 
-Work is sequenced from the most contained improvements to the deeper integrations:
+The current release already includes conservative duplicate-result filtering, successful test-output compaction, PreCompact handoff guidance, local OCR, and lexical file retrieval. The remaining work is deeper than these initial safeguards:
 
-1. **Tool and MCP outputs:** safe, schema-aware adapters with reversible originals.
-2. **Session and context management:** better compaction guidance and supported Claude Code lifecycle handling.
-3. **Visual document understanding:** chart/diagram interpretation and OCR region quality checks.
-4. **Benchmark suite:** controlled comparisons across more task categories, tools, and competitor implementations.
+1. **File and image fidelity:** richer source maps for pages, tables, cells, slides, and image regions; OCR quality checks; safe image deduplication; chart and diagram understanding.
+2. **Text and code retrieval:** semantic search, language-aware AST/LSP navigation, and stronger log and structured-document retrieval.
+3. **Tool and MCP processing:** schema-aware adapters, safe field projection, pagination-aware retrieval, and recoverable original results.
+4. **Session continuity:** structured checkpoints, memory lifecycle controls, contradiction handling, and supported cross-session recovery.
+5. **Benchmark suite:** reproducible A/B tasks, independent quality evaluation, full overhead accounting, and transparent reports.
 
-Features remain labelled as planned until implemented and tested.
+Features remain labelled as planned until implemented and tested. See [the engineering strategy](docs/CONSUMPTION-STRATEGY.md) for detailed priorities and acceptance criteria.
 
 ## Privacy and limitations
 
