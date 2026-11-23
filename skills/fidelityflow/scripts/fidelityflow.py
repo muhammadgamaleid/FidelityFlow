@@ -814,7 +814,8 @@ def split_chunks(
     assert "".join(chunk["text"] for chunk in chunks) == text
     return chunks
 def build_source_map(
-    text: str, source_suffix: str | None = None, max_chars: int = CHUNK_CHARS
+    text: str, source_suffix: str | None = None, max_chars: int = CHUNK_CHARS,
+    chunks: list[dict] | None = None,
 ) -> tuple[list[dict], dict]:
     """Map extracted chunks to explicit page, slide, sheet, table, image, and chart markers.
 
@@ -878,7 +879,8 @@ def build_source_map(
                 events.append((start, cell_location))
 
     events.sort(key=lambda item: item[0])
-    chunks = split_chunks(text, max_chars=max_chars, source_suffix=source_suffix)
+    if chunks is None:
+        chunks = split_chunks(text, max_chars=max_chars, source_suffix=source_suffix)
     mapped = []
     event_index = 0
     active_location: dict = initial_location
@@ -1049,7 +1051,9 @@ def cmd_ingest(args: argparse.Namespace) -> int:
         print(f"Extraction failed: extractor mismatch ({extractor} != {extractor_expected})", file=sys.stderr)
         return 3
     chunks = split_chunks(text, args.chunk_chars, source_suffix=normalized_suffix(path))
-    source_locations, source_map_summary = build_source_map(text, normalized_suffix(path), args.chunk_chars)
+    source_locations, source_map_summary = build_source_map(
+        text, normalized_suffix(path), args.chunk_chars, chunks=chunks
+    )
     for chunk, location in zip(chunks, source_locations):
         chunk["source_location"] = location
     atomic_write_text(doc_dir / "content.txt", text)
