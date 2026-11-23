@@ -310,6 +310,45 @@ class FidelityFlowCliTests(unittest.TestCase):
             self.assertIn("Header text", extracted)
             self.assertIn("Footnote detail", extracted)
 
+    def test_chart_parser_extracts_type_title_axes_legend_and_indexed_points(self):
+        module = load_module(CLI, "fidelityflow_chart_semantics_test")
+        chart = """<c:chartSpace xmlns:c="http://schemas.openxmlformats.org/drawingml/2006/chart">
+          <c:chart><c:title><c:tx><c:rich><c:p><c:r><c:t>Quarterly Revenue</c:t></c:r></c:p></c:rich></c:tx></c:title>
+          <c:plotArea><c:barChart><c:ser><c:tx><c:strRef><c:strCache><c:pt idx="0"><c:v>Revenue</c:v></c:pt></c:strCache></c:strRef></c:tx>
+          <c:cat><c:strRef><c:strCache><c:pt idx="0"><c:v>Q1</c:v></c:pt><c:pt idx="2"><c:v>Q3</c:v></c:pt></c:strCache></c:strRef></c:cat>
+          <c:val><c:numRef><c:numCache><c:pt idx="0"><c:v>100</c:v></c:pt><c:pt idx="2"><c:v>300</c:v></c:pt></c:numCache></c:numRef></c:val>
+          </c:ser></c:barChart><c:catAx><c:axId val="1"/><c:title><c:tx><c:rich><c:p><c:r><c:t>Quarter</c:t></c:r></c:p></c:rich></c:tx></c:title></c:catAx>
+          <c:valAx><c:axId val="2"/><c:scaling><c:min val="0"/><c:max val="500"/></c:scaling></c:valAx></c:plotArea>
+          <c:legend><c:legendPos val="b"/></c:legend></c:chart></c:chartSpace>"""
+        buffer = io.BytesIO()
+        with zipfile.ZipFile(buffer, "w") as archive:
+            archive.writestr("chart.xml", chart)
+        buffer.seek(0)
+        with zipfile.ZipFile(buffer) as archive:
+            lines = module.parse_chart_xml(archive, "chart.xml")
+        joined = "\n".join(lines)
+        self.assertIn("[CHART_TYPE bar]", joined)
+        self.assertIn("[CHART_TITLE] Quarterly Revenue", joined)
+        self.assertIn('catAx id=1 title="Quarter"', joined)
+        self.assertIn("max=500", joined)
+        self.assertIn("[CHART_LEGEND present=true position=b]", joined)
+        self.assertIn("Categories: 0=Q1 | 2=Q3", joined)
+        self.assertIn("Values: 0=100 | 2=300", joined)
+
+    def test_pptx_extracts_native_connector_endpoints(self):
+        module = load_module(CLI, "fidelityflow_connector_semantics_test")
+        slide = """<p:sld xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main"
+          xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"><p:cSld><p:spTree>
+          <p:cxnSp><p:nvCxnSpPr><p:cNvPr id="7" name="Arrow 1"/><p:cNvCxnSpPr>
+          <a:stCxn id="2" idx="0"/><a:endCxn id="3" idx="1"/></p:cNvCxnSpPr></p:nvCxnSpPr></p:cxnSp>
+          </p:spTree></p:cSld></p:sld>"""
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "diagram.pptx"
+            with zipfile.ZipFile(path, "w") as archive:
+                archive.writestr("ppt/slides/slide1.xml", slide)
+            extracted, _ = module.parse_pptx(path)
+        self.assertIn("[DIAGRAM_CONNECTOR id=7 name=Arrow_1 start=2:0 end=3:1]", extracted)
+
     def test_xlsx_preserves_hidden_state_merged_ranges_and_chart_cache(self):
         module = load_module(CLI, "fidelityflow_xlsx_extended_test")
         with tempfile.TemporaryDirectory() as tmp:
