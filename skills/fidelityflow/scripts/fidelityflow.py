@@ -1220,6 +1220,16 @@ def build_source_map(
             region["coordinate_space"] = "word_anchor_relative" if fields.get("layout") == "floating" else "inline_extent"
             region_events.append((line_start, region))
             continue
+        connector_match = re.match(
+            r"^\[DIAGRAM_CONNECTOR id=(\S+) name=(\S+) start=(\S+) end=(\S+)\]$", marker
+        )
+        if connector_match:
+            region_events.append((line_start, {
+                "kind": "diagram_connector", "object_id": connector_match.group(1),
+                "name": connector_match.group(2), "start": connector_match.group(3),
+                "end": connector_match.group(4), "relationship_semantics": "native_shape_connection",
+            }))
+            continue
         office_match = re.match(r"^\[OFFICE_OBJECT id=(\S+) name=(\S+) kind=(\S+)\]$", marker)
         if office_match:
             region_events.append((line_start, {"kind": "office_object", "object_id": office_match.group(1),
@@ -1342,6 +1352,8 @@ def format_source_location(location: dict | None) -> str:
                                 f"extent(EMU)={region.get('extent_emu', {}).get('width')}x{region.get('extent_emu', {}).get('height')} anchor={anchor}")
             elif region.get("kind") == "office_object":
                 rendered.append(f"Office {region.get('object_type')}#{region.get('object_id')} {region.get('name')}")
+            elif region.get("kind") == "diagram_connector":
+                rendered.append(f"connector#{region.get('object_id')} {region.get('start')} -> {region.get('end')}")
         if len(regions) > 3:
             rendered.append(f"+{len(regions) - 3} more regions")
     rendered.append(f"lines={location.get('line_start', '?')}-{location.get('line_end', '?')}")
