@@ -893,8 +893,11 @@ def build_source_map(
                     counters["table"] += 1
                     location = {"kind": "table", "table": counters["table"]}
                 elif stripped.startswith(("[IMAGE:", "[IMAGE ALT TEXT:", "[SHAPE ALT TEXT:")):
-                    counters["image"] += 1
-                    location = {"kind": "image", "image": counters["image"]}
+                    if suffix in OCR_IMAGE_SUFFIXES and active.get("kind") == "image" and counters["image"] == 1:
+                        location = {"kind": "image", "image": 1}
+                    else:
+                        counters["image"] += 1
+                        location = {"kind": "image", "image": counters["image"]}
                 else:
                     match = re.match(r"^###\s*Chart:\s*(.+?)\s*$", stripped, re.IGNORECASE)
                     if match:
@@ -1016,7 +1019,12 @@ def build_source_map(
                 unit = dict(event)
                 if unit not in units:
                     units.append(unit)
-                active_location = dict(event)
+                inherited = {}
+                if event.get("kind") == "image" and active_location.get("image_dimensions"):
+                    inherited["image_dimensions"] = active_location["image_dimensions"]
+                if event.get("kind") == "slide" and active_location.get("slide_dimensions"):
+                    inherited["slide_dimensions"] = active_location["slide_dimensions"]
+                active_location = {**inherited, **event}
             event_index += 1
 
         location = {
