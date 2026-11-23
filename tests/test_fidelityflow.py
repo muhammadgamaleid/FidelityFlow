@@ -9,6 +9,7 @@ import sys
 import tempfile
 import unittest
 import zipfile
+import xml.etree.ElementTree as ET
 
 ROOT = Path(__file__).resolve().parents[1]
 CLI = ROOT / "skills" / "fidelityflow" / "scripts" / "fidelityflow.py"
@@ -954,9 +955,9 @@ class SourceMappingTests(unittest.TestCase):
 
     def test_source_map_tracks_docx_floating_picture_anchor_and_relationship(self):
         source = (
-            "## Document body\\nParagraph text\\n"
+            "## Document body\nParagraph text\n"
             "[DOCX_IMAGE_REGION id=9 cx=914400 cy=457200 layout=floating rel=rId5 target=media/image2.png "
-            "x=1200 relative_x=page y=2400 relative_y=margin]\\n"
+            "x=1200 relative_x=page y=2400 relative_y=margin]\n"
         )
         mapped, summary = self.module.build_source_map(source, ".docx", max_chars=7000)
         region = mapped[0]["regions"][0]
@@ -985,9 +986,9 @@ class SourceMappingTests(unittest.TestCase):
 
     def test_source_map_tracks_chart_frame_and_office_object_identity(self):
         source = (
-            "# Slide 1\\n[SLIDE_DIMENSIONS cx=12192000 cy=6858000 coordinate_space=EMU]\\n"
-            "[CHART_REGION id=14 x=100 y=200 cx=3000 cy=1800 coordinate_space=slide_emu]\\n"
-            "[OFFICE_OBJECT id=14 name=Chart_1 kind=graphicFrame]\\n"
+            "# Slide 1\n[SLIDE_DIMENSIONS cx=12192000 cy=6858000 coordinate_space=EMU]\n"
+            "[CHART_REGION id=14 x=100 y=200 cx=3000 cy=1800 coordinate_space=slide_emu]\n"
+            "[OFFICE_OBJECT id=14 name=Chart_1 kind=graphicFrame]\n"
         )
         mapped, summary = self.module.build_source_map(source, ".pptx", max_chars=7000)
         kinds = {region["kind"] for region in mapped[0]["regions"]}
