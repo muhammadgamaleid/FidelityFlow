@@ -1,99 +1,124 @@
-# Claude platform setup and usage optimization
+# Claude platform setup and installation
 
-This guide distinguishes what Claude provides from what FidelityFlow currently controls.
+This guide separates Claude platform capabilities from the local FidelityFlow runtime. Interface labels and account availability can change; follow the current Claude UI and organization policy when they differ.
 
-## Claude.ai: Skill upload (Free and paid plans)
+## Claude.ai — upload the Skill
 
-Anthropic lists Skills as available on Free, Pro, Max, Ultra, Team, and Enterprise plans. For individual Free, Pro, Max, and Ultra accounts, Code execution and file creation must be enabled. In newer Settings layouts this capability may be labelled **Create and edit files**.
+Custom Skills are uploaded as ZIP files. Code execution and file creation must be enabled.
 
-1. Open **Settings → Capabilities**.
-2. Enable **Code execution and file creation** (or **Create and edit files**).
-3. Open **Customize → Skills**.
-4. Click **+ → Create skill → Upload a skill**.
-5. Select dist/fidelityflow-claude-ai.zip.
-6. Enable FidelityFlow in the Skills list.
+1. Download `fidelityflow-claude-ai.zip` from the [latest FidelityFlow release](https://github.com/muhammadgamaleid/FidelityFlow/releases/latest), or build it locally with `python build_release.py --check`.
+2. Open Claude.ai and go to **Settings → Capabilities**.
+3. Enable **Code execution and file creation** (the label may appear as **Create and edit files**).
+4. Open **Customize → Skills**.
+5. Select **+ → Create skill → Upload a skill**.
+6. Upload `fidelityflow-claude-ai.zip`.
+7. Enable FidelityFlow in the Skills list.
+8. Start a new conversation and test it with a source file accessible to the Skill workspace.
 
-For Team accounts, the organization must have Skills enabled. Enterprise owners must enable both Code execution and file creation and Skills in **Organization settings → Plugins & skills → Policy**. Administrators may impose additional policies.
+Skills are listed for Free and paid Claude plans, subject to current feature availability and organization policies. Enterprise owners may need to enable Skills and Code execution and file creation in organization policy.
 
-## Claude.ai: Plugin upload (paid plans only)
+Official reference: [Use Skills in Claude](https://support.claude.com/en/articles/12512180-use-skills-in-claude).
 
-Anthropic currently lists Plugins for Pro, Max, Ultra, Team, and Enterprise; Free is not included.
+## Claude.ai — upload the Plugin
 
-1. Open **Customize → Plugins**.
-2. Choose the option to upload a custom Plugin.
-3. Select dist/fidelityflow-plugin.zip.
-4. Enable FidelityFlow.
+This route applies only when custom Plugin upload is available in the user's account.
 
-Because the Plugin bundles a Skill, keep **Code execution and file creation** enabled for its file-processing commands.
+1. Download `fidelityflow-plugin.zip` from the [latest release](https://github.com/muhammadgamaleid/FidelityFlow/releases/latest).
+2. Open **Customize → Plugins**.
+3. Choose the custom Plugin upload action.
+4. Upload the ZIP and review its details.
+5. Enable FidelityFlow.
+6. Keep Code execution and file creation enabled for Skill file-processing workflows.
 
-The Plugin archive wraps the same Skill in a Claude plugin manifest. The current Plugin package contains a Skill only. It does not add a hosted MCP server, chat hooks, or sub-agents. Plugin hooks and sub-agents do not run in ordinary Claude web chat.
+The current Plugin bundles the Skill only. It does not include a hosted MCP server or Claude.ai chat hooks. Plugin availability and upload controls are determined by Anthropic and organization administrators; if the upload option is absent, use the Skill ZIP instead.
 
-Official references:
-- [Use Skills in Claude](https://support.claude.com/en/articles/12512180-use-skills-in-claude)
-- [Use Plugins in Claude](https://support.claude.com/en/articles/13837440-use-plugins-in-claude)
+## Claude Code — install the Skill and local runtime
 
-## Claude.ai: use large files carefully
+Requirements: Claude Code, Python 3.10+, and Git.
 
-1. For recurring reference material, create a Claude Project and add stable documents to Project Knowledge once rather than attaching the same library to every new chat.
-2. Keep Project Instructions short and stable. Put task-specific guidance in Skills or reference documents.
-3. When a file is accessible to the Skill execution workspace, use the bundled CLI to extract and index it once, then retrieve targeted excerpts.
-4. Put the cache in a writable workspace directory such as .fidelityflow/cache, not inside the Skill installation directory.
-5. Reuse a cache only while that workspace remains available. Anthropic does not guarantee persistence across unrelated chats or VM resets.
-6. Use Claude's native document capabilities for visual PDFs, scanned pages, charts, complex Word layouts, presentation graphics, and consequential spreadsheet calculations.
-
-**Important boundary:** a custom Skill cannot intercept Claude.ai's internal initial attachment-upload/parser pipeline or guarantee that the first upload is excluded from usage. Do not promise zero-cost uploads. A local index is a derivative, not a way to bypass platform processing.
-
-## Claude Code: install the local package and Skill
-
-From the repository root:
+From a terminal:
 
 ~~~bash
+git clone https://github.com/muhammadgamaleid/FidelityFlow.git
+cd FidelityFlow
 python -m pip install -e ".[pdf]"
 fidelityflow doctor
 python install.py --scope user
 ~~~
 
-Start a new Claude Code session and verify the Skill is available. Use the Skills picker or inspect the installed Skills list.
+Restart Claude Code or start a new session. The Skill is copied to `~/.claude/skills/fidelityflow` for the current user.
 
-To install optional hooks:
+To enable optional hooks:
 
 ~~~bash
 python install.py --scope user --enable-output-hook
 ~~~
 
-Review the Claude settings file after installation. The installer backs up existing settings and merges its registrations, but users should still inspect hook commands and local archive paths. The current hooks are opt-in and intentionally narrow. The PostToolUse matcher covers Read, Bash, selected text-result tools, and MCP tool names; PreCompact adds a concise preservation policy to Claude's existing compaction summary. You can maintain an optional `.fidelityflow/session-brief.md` from the template at `docs/SESSION-BRIEF-TEMPLATE.md`.
+Review `~/.claude/settings.json`, its backup, and the scripts under `~/.claude/hooks/fidelityflow/`. The installer merges its registrations rather than replacing the complete settings file. Hooks are opt-in; local caches and output archives are unencrypted.
 
-## Optional local OCR for Claude Code
-
-OCR is available only when the local machine has the optional Python packages, the Tesseract executable, and the required language data installed.
+To install the Skill into the current project instead of the user account:
 
 ~~~bash
-python -m pip install -e ".[ocr]"
+python install.py --scope project
+~~~
+
+This copies the Skill under the project's `.claude/skills/fidelityflow` directory. Machine-specific hooks are user-scope only.
+
+## Claude Code — install the Plugin from GitHub
+
+The repository includes `.claude-plugin/marketplace.json`. If the repository is reachable to your Git credentials (private repositories require access), install it from a terminal:
+
+~~~bash
+claude plugin marketplace add muhammadgamaleid/FidelityFlow
+claude plugin install fidelityflow@fidelityflow --scope user
+claude plugin list
+~~~
+
+To update or remove it:
+
+~~~bash
+claude plugin update fidelityflow@fidelityflow
+claude plugin uninstall fidelityflow@fidelityflow
+~~~
+
+The Plugin provides the Skill component. It does not install the Python runtime or activate the optional Python hooks; use the installer above for those capabilities.
+
+To load a local checkout for one development session without installing it:
+
+~~~bash
+claude --plugin-dir .
+~~~
+
+See the official [Claude Code plugin installation guide](https://code.claude.com/docs/en/plugins/install) and [marketplace reference](https://code.claude.com/docs/en/plugins/marketplace-reference).
+
+## Optional local OCR and visual candidates
+
+Install the optional Python packages:
+
+~~~bash
+python -m pip install -e ".[ocr,vision]"
 fidelityflow doctor
+~~~
+
+Install the Tesseract executable and language packs separately. For Arabic and English, install both language datasets and use:
+
+~~~bash
 fidelityflow ingest "scanned-report.pdf" --ocr --ocr-lang ara+eng
 fidelityflow ingest "screenshot.png" --ocr --ocr-lang ara+eng
 ~~~
 
-OCR is opt-in. It processes sparse-text PDF pages only, respects the configured page/DPI limits, and keeps the original file unchanged. Claude.ai's managed workspace does not guarantee Tesseract or its language data; do not assume this local OCR workflow works in web chat.
+OCR and OpenCV visual analysis are local CLI features. Claude.ai's managed workspace does not guarantee Tesseract, language packs, OpenCV, or native dependencies.
 
-## Claude Code: native usage habits
+## Use the workflow effectively
 
-- Use /context to inspect what occupies the context window and /usage to inspect usage when available.
-- Use /clear when switching to an unrelated task. Use /compact when continuing the same task and preserve decisions, constraints, file paths, tests, and unresolved questions.
-- Keep CLAUDE.md focused on facts that matter in most sessions. Move detailed workflows into Skills that are loaded when relevant.
-- Disable MCP servers you are not using. Tool definitions and returned results can both consume context.
-- Prefer narrow CLI commands, symbol searches, and line ranges over dumping entire directories or large files. FidelityFlow search expands common code identifiers and returns line-preserving excerpts; use `show` when the complete function or source chunk is required.
-- Reuse repository knowledge and avoid repeating identical reads or searches.
-- Choose model and effort based on task difficulty. Do not lower reasoning effort for security, architecture, data integrity, or other high-stakes tasks only to save tokens.
-- Leave prompt caching enabled unless you have a measured reason to change it. Cache reads can reduce billed API cost, but cached content can still occupy context.
+- Put recurring reference material in Claude Projects and Project Knowledge where appropriate.
+- Keep project instructions short and stable.
+- Search indexed files first and retrieve only the chunks needed for the task.
+- Use native Claude document/vision handling for consequential visual interpretation, charts, and exact spreadsheet calculations.
+- In Claude Code, use `/context` and `/usage` when available; use `/clear` for unrelated work and `/compact` when continuing a task.
+- Disable MCP servers that are not needed.
+- Do not reduce reasoning effort for security, architecture, or data-critical tasks solely to save usage.
 
-## What FidelityFlow changes today
+## Boundaries
 
-- The file CLI extracts and caches supported files locally, then returns lexical search excerpts on demand.
-- The Claude Code output hook can suppress one byte-identical repeated large Read result and then permits a full recovery read on the next identical request.
-- The optional output hook compacts only a narrow set of recognized successful test-runner output and archives original stdout locally.
-- Claude Code project memory stores evidence-backed facts in local SQLite.
-
-## What FidelityFlow does not change
-
-FidelityFlow does not modify Claude pricing, subscription limits, model selection, thinking budgets, prompt-cache policy, automatic compaction thresholds, or Claude.ai's internal upload pipeline. It supports opt-in local OCR when Tesseract and the optional dependencies are installed. It does not yet generically rewrite MCP and web-search results. It does not promise a saving percentage until measured against a controlled baseline.
+FidelityFlow does not modify Claude pricing, subscription limits, model selection, thinking budgets, prompt-cache policy, automatic compaction thresholds, or Claude.ai's initial upload pipeline. It does not promise a token-saving percentage before controlled measurement.

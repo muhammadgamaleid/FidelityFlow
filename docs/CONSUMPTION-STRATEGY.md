@@ -48,7 +48,7 @@ These hooks are deliberately narrow. General schema-aware MCP/web result project
 |---|---|---|
 | File extraction | Text, Office XML-derived content, PDF text | Stronger per-format extraction and source maps |
 | File retrieval | Local cache, BM25-style chunk search, identifier-aware indexing, structural code/heading boundaries, and line-preserving query-centered excerpts | Semantic retrieval, metadata filters, AST/LSP symbol maps |
-| Images and scans | Opt-in local Tesseract OCR for images and sparse-text PDF pages; no visual reasoning | Image-region analysis, layout understanding, OCR quality scoring, and source-region maps |
+| Images and scans | Opt-in local Tesseract OCR, pixel-coordinate OCR lines, OpenCV shape/plot candidates, proximity labels, possible arrows, tentative shape links, and source-map regions | Raster chart value recovery, semantic diagram interpretation, OCR of embedded Office media, and independent accuracy benchmarks |
 | Conversation history | No direct rewrite; Claude Code PreCompact guidance steers the existing summary | Evaluate compaction quality and optional structured session checkpoints |
 | Tool output | Exact duplicate Read and eligible text-only search/MCP results; limited successful tests | Schema-aware adapters and safe result projection for known tool contracts |
 | MCP definitions/results | No general optimizer | Tool discovery hygiene, schema budgeting, result projection |
@@ -80,11 +80,11 @@ Any unknown, lossy, ambiguous, or unrecoverable transformation must fail open.
 - Make no percentage claims before the test set is run.
 
 ### P1 — File and image processing
-- Improve optional OCR with page-level provenance and recognition-quality checks.
-- Improve DOCX/XLSX/PPTX extraction without discarding layout-critical metadata.
-- Add image deduplication and task-aware resolution/region handling.
-- Keep original bytes and support retrieval of exact pages, cells, slides, and regions.
-- Avoid sending every page/image to Claude when only a subset is relevant.
+- Completed in v0.6: structured page/slide/sheet/cell/object source mapping, OCR pixel regions, Office chart metadata/cached values, DOCX picture anchors, and native PPTX connector endpoints.
+- Completed in v0.6: optional raster geometric candidates for shapes, approximate plot bounds, OCR proximity labels, possible arrowheads, and tentative shape-to-shape links.
+- Next: OCR embedded raster media in DOCX/PPTX with explicit source provenance and bounded resource controls.
+- Next: benchmark OCR and visual-candidate precision/recall against a labelled reference set before expanding automatic interpretation.
+- Next: investigate raster chart value/series recovery and semantic diagram understanding as separate, explicitly uncertain capabilities.
 
 ### P2 — Tool and MCP result processing
 - Build safe adapters for known tool response schemas.

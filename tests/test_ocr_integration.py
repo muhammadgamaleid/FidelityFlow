@@ -61,6 +61,7 @@ class RealOCREndToEndTests(unittest.TestCase):
             self.assertIn("FIDELITY", output.upper())
             self.assertIn("12345", output)
             self.assertIn("[OCR_QUALITY", output)
+            self.assertIn("[IMAGE_DIMENSIONS width=2000 height=600 coordinate_space=pixels]", output)
             self.assertIn("[OCR_LAYOUT]", output)
             self.assertIn("[VISUAL_GEOMETRY]", output)
             self.assertIsInstance(warnings, list)

@@ -10,13 +10,15 @@ from collections import defaultdict
 from pathlib import Path
 import shutil
 import unicodedata
+import re
+import math
 
 MAX_IMAGE_BYTES = 100 * 1024 * 1024
 MAX_IMAGE_PIXELS = 80_000_000
 MAX_PDF_BYTES = 500 * 1024 * 1024
 OCR_TIMEOUT_SECONDS = 15
 OSD_TIMEOUT_SECONDS = 10
-OCR_ENGINE_VERSION = "tesseract-multipass-v2"
+OCR_ENGINE_VERSION = "tesseract-vision-v3"
 
 
 def _dependencies():
@@ -134,7 +136,7 @@ def _run_ocr(image, language: str, psm: int):
     ).strip()
     # Prefer credible confidence, then useful coverage; never fabricate text.
     score = average + min(len(text), 1200) / 120.0
-    return {"text": text, "words": words, "confidence": average, "score": score, "psm": psm}
+    return {"text": text, "words": words, "confidence": average, "score": score, "psm": psm, "image_size": image.size}
 
 
 def _best_ocr(image, language: str):
@@ -199,10 +201,23 @@ def _layout_lines(words: list[dict]) -> list[str]:
     return lines
 
 
-def analyze_visual_structure(image) -> list[str]:
-    """Describe geometric evidence when optional OpenCV is installed.
+def _vision_words(words: list[dict], scale_x: float, scale_y: float) -> list[dict]:
+    normalized = []
+    for word in words:
+        x = int(word["left"] * scale_x)
+        y = int(word["top"] * scale_y)
+        w = max(1, int(word["width"] * scale_x))
+        h = max(1, int(word["height"] * scale_y))
+        normalized.append({"text": word["text"], "confidence": float(word["confidence"]),
+                           "x": x, "y": y, "width": w, "height": h})
+    return normalized
 
-    This is deliberately not semantic chart/diagram interpretation.
+
+def analyze_visual_structure(image, words: list[dict] | None = None, ocr_size=None) -> list[str]:
+    """Extract conservative shape, chart, and connector evidence from raster images.
+
+    Geometry is heuristic and optional. Semantic labels are attached only when OCR
+    text overlaps or is immediately adjacent to a detected region.
     """
     try:
         import cv2  # type: ignore
@@ -213,57 +228,234 @@ def analyze_visual_structure(image) -> list[str]:
         width, height = image.size
         analysis = image.convert("RGB")
         analysis.thumbnail((1800, 1800))
+        scale_x, scale_y = width / analysis.width, height / analysis.height
         array = np.asarray(analysis)
         gray = cv2.cvtColor(array, cv2.COLOR_RGB2GRAY)
-        edges = cv2.Canny(gray, 60, 160)
-        min_line = max(40, int(min(gray.shape) * 0.12))
-        detected = cv2.HoughLinesP(
-            edges, 1, np.pi / 180, threshold=50,
-            minLineLength=min_line, maxLineGap=12,
-        )
+        blur = cv2.GaussianBlur(gray, (3, 3), 0)
+        edges = cv2.Canny(blur, 45, 135)
+        min_line = max(30, int(min(gray.shape) * 0.07))
+        detected = cv2.HoughLinesP(edges, 1, np.pi / 180, threshold=45,
+                                   minLineLength=min_line, maxLineGap=10)
+        lines = []
         horizontal = vertical = diagonal = 0
         if detected is not None:
             for item in detected[:, 0, :]:
                 x1, y1, x2, y2 = map(int, item)
                 dx, dy = abs(x2 - x1), abs(y2 - y1)
-                if dy <= max(3, dx * 0.08):
+                if max(dx, dy) < min_line:
+                    continue
+                if dy <= max(3, dx * 0.07):
                     horizontal += 1
-                elif dx <= max(3, dy * 0.08):
+                    orientation = "horizontal"
+                elif dx <= max(3, dy * 0.07):
                     vertical += 1
+                    orientation = "vertical"
                 else:
                     diagonal += 1
+                    orientation = "diagonal"
+                lines.append((x1, y1, x2, y2, orientation))
         contours, _ = cv2.findContours(edges, cv2.RETR_LIST, cv2.CHAIN_APPROX_SIMPLE)
-        substantial = sum(
-            1 for contour in contours
-            if cv2.contourArea(contour) >= max(80, gray.shape[0] * gray.shape[1] * 0.00015)
-        )
-        evidence = [
-            f"Image dimensions: {width}x{height} pixels.",
-            f"Geometric evidence (approximate): {horizontal} long horizontal lines, "
-            f"{vertical} long vertical lines, {diagonal} diagonal lines, "
-            f"{substantial} substantial contours.",
-        ]
-        if horizontal >= 2 and vertical >= 2:
-            evidence.append(
-                "Grid/axis-like structure may be present; this is a visual cue, not a chart classification."
+        min_area = max(100, gray.shape[0] * gray.shape[1] * 0.00025)
+        objects = []
+        seen = set()
+        for contour in contours:
+            area = cv2.contourArea(contour)
+            if area < min_area:
+                continue
+            x, y, w, h = cv2.boundingRect(contour)
+            if w < 14 or h < 14 or w > gray.shape[1] * 0.96 or h > gray.shape[0] * 0.96:
+                continue
+            perimeter = cv2.arcLength(contour, True)
+            if perimeter <= 0:
+                continue
+            approx = cv2.approxPolyDP(contour, 0.035 * perimeter, True)
+            vertices = len(approx)
+            ratio = w / max(1, h)
+            kind = None
+            if vertices == 4:
+                points = approx.reshape(-1, 2)
+                angles = []
+                for i in range(4):
+                    a = points[(i - 1) % 4] - points[i]
+                    b = points[(i + 1) % 4] - points[i]
+                    denom = max(1e-6, float(np.linalg.norm(a) * np.linalg.norm(b)))
+                    angles.append(abs(float(np.dot(a, b)) / denom))
+                if all(value < 0.28 for value in angles):
+                    kind = "rectangle"
+                elif all(0.45 < value < 0.95 for value in angles):
+                    kind = "diamond"
+            elif vertices == 3:
+                kind = "triangle"
+            elif vertices >= 7:
+                circularity = 4 * math.pi * area / max(1.0, perimeter * perimeter)
+                if circularity >= 0.68:
+                    kind = "ellipse"
+            if kind:
+                key = (kind, round(x / 8), round(y / 8), round(w / 8), round(h / 8))
+                if key not in seen:
+                    seen.add(key)
+                    objects.append({"kind": kind, "x": x, "y": y, "w": w, "h": h,
+                                    "confidence": 0.72 if kind in {"rectangle", "ellipse"} else 0.62})
+        # Prefer larger enclosing contours and suppress near-identical nested detections.
+        objects.sort(key=lambda item: item["w"] * item["h"], reverse=True)
+        filtered = []
+        for item in objects:
+            duplicate = any(
+                prior["kind"] == item["kind"]
+                and abs(prior["x"] - item["x"]) < 8 and abs(prior["y"] - item["y"]) < 8
+                and abs(prior["w"] - item["w"]) < 12 and abs(prior["h"] - item["h"]) < 12
+                for prior in filtered
             )
-        if diagonal >= 3:
-            evidence.append(
-                "Multiple diagonal line segments detected; they may belong to connectors, plotted series, or image edges."
-            )
+            if not duplicate:
+                filtered.append(item)
+        objects = filtered[:80]
+        ocr_width = max(1, int(ocr_size[0])) if ocr_size else width
+        ocr_height = max(1, int(ocr_size[1])) if ocr_size else height
+        word_scale_x = width / ocr_width
+        word_scale_y = height / ocr_height
+        normalized_words = _vision_words(words or [], word_scale_x, word_scale_y)
+        evidence = [f"Image dimensions: {width}x{height} pixels."]
         evidence.append(
-            "No values, labels, arrow direction, causal relationship, or chart meaning were inferred."
+            f"Geometric evidence (approximate): {horizontal} horizontal, {vertical} vertical, "
+            f"{diagonal} diagonal line segments; {len(objects)} candidate shapes."
+        )
+        for index, item in enumerate(objects, start=1):
+            item["id"] = index
+            x, y, w, h = (int(round(item[key] * scale)) for key, scale in
+                          (("x", scale_x), ("y", scale_y), ("w", scale_x), ("h", scale_y)))
+            right, bottom = x + w, y + h
+            labels = []
+            for word in normalized_words:
+                wx, wy = word["x"], word["y"]
+                wr, wb = wx + word["width"], wy + word["height"]
+                margin = max(18, int(min(w, h) * 0.18))
+                if wx <= right + margin and wr >= x - margin and wy <= bottom + margin and wb >= y - margin:
+                    labels.append(word["text"])
+            label = re.sub(r"[^\w.-]+", "_", " ".join(labels), flags=re.UNICODE)[:100] or "none"
+            evidence.append(
+                f"[VISION_OBJECT id={index} type={item['kind']} x={x} y={y} w={w} h={h} "
+                f"confidence={item['confidence']:.2f} label={label} coordinate_space=pixels]"
+            )
+        # Detect chart-like plots only when both axes and a plausible data trace/bar pattern exist.
+        chart_candidate = horizontal >= 2 and vertical >= 2 and (
+            diagonal >= 1 or any(item["kind"] == "rectangle" for item in objects)
+        )
+        if chart_candidate:
+            horizontal_lines = [line for line in lines if line[4] == "horizontal"]
+            vertical_lines = [line for line in lines if line[4] == "vertical"]
+            plot_x = min(min(line[0], line[2]) for line in vertical_lines)
+            plot_y = min(min(line[1], line[3]) for line in horizontal_lines)
+            plot_right = max(max(line[0], line[2]) for line in horizontal_lines)
+            plot_bottom = max(max(line[1], line[3]) for line in vertical_lines)
+            px, py = int(round(plot_x * scale_x)), int(round(plot_y * scale_y))
+            pw = max(1, int(round((plot_right - plot_x) * scale_x)))
+            ph = max(1, int(round((plot_bottom - plot_y) * scale_y)))
+            evidence.append(
+                f"[VISION_CHART type=plot_candidate x={px} y={py} w={pw} h={ph} "
+                "confidence=0.55 coordinate_space=pixels]"
+            )
+            evidence.append("Chart candidate: intersecting axes/grid and plotted marks detected; values and series are not inferred from pixels.")
+        # Detect arrowheads as triangular contours and associate them with the nearest line endpoint.
+        triangles = [item for item in objects if item["kind"] == "triangle"]
+        relations = []
+        for triangle in triangles:
+            cx, cy = triangle["x"] + triangle["w"] / 2, triangle["y"] + triangle["h"] / 2
+            candidates = []
+            for line in lines:
+                x1, y1, x2, y2, orientation = line
+                d1 = math.hypot(cx - x1, cy - y1)
+                d2 = math.hypot(cx - x2, cy - y2)
+                if min(d1, d2) <= max(18, min(triangle["w"], triangle["h"]) * 1.8):
+                    candidates.append((min(d1, d2), line, "end" if d2 < d1 else "start"))
+            if candidates:
+                _, line, endpoint = min(candidates, key=lambda value: value[0])
+                x1, y1, x2, y2, _ = line
+                tip = (x2, y2) if endpoint == "end" else (x1, y1)
+                relations.append((triangle, tip, line))
+        for index, (triangle, tip, line) in enumerate(relations[:40], start=1):
+            tx, ty = int(round(tip[0] * scale_x)), int(round(tip[1] * scale_y))
+            lx1, ly1, lx2, ly2, _ = line
+            sx, sy = (lx1, ly1) if (lx1, ly1) != tip else (lx2, ly2)
+            sx, sy = int(round(sx * scale_x)), int(round(sy * scale_y))
+            evidence.append(
+                f"[VISION_RELATION id={index} type=arrow_candidate x1={sx} y1={sy} x2={tx} y2={ty} "
+                "confidence=0.45 coordinate_space=pixels]"
+            )
+        # Link line endpoints to detected flowchart shapes only when both ends
+        # land close to distinct boxes/diamonds/ellipses. Direction stays tentative.
+        flow_shapes = [item for item in objects if item["kind"] in {"rectangle", "diamond", "ellipse"}]
+
+        def nearest_flow_shape(point):
+            px0, py0 = point
+            candidates = []
+            for shape in flow_shapes:
+                dx = max(shape["x"] - px0, 0, px0 - (shape["x"] + shape["w"]))
+                dy = max(shape["y"] - py0, 0, py0 - (shape["y"] + shape["h"]))
+                candidates.append((math.hypot(dx, dy), shape))
+            return min(candidates, key=lambda value: value[0]) if candidates else (float("inf"), None)
+
+        shape_connections = []
+        for line in lines:
+            x1, y1, x2, y2, _ = line
+            if math.hypot(x2 - x1, y2 - y1) < max(30, min(gray.shape) * 0.06):
+                continue
+            d1, shape1 = nearest_flow_shape((x1, y1))
+            d2, shape2 = nearest_flow_shape((x2, y2))
+            threshold = max(18, min(gray.shape) * 0.025)
+            if shape1 is None or shape2 is None or shape1["id"] == shape2["id"] or d1 > threshold or d2 > threshold:
+                continue
+            arrow_at_end = any(
+                math.hypot((tri["x"] + tri["w"] / 2) - x2, (tri["y"] + tri["h"] / 2) - y2)
+                <= max(18, min(tri["w"], tri["h"]) * 1.8) for tri in triangles
+            )
+            arrow_at_start = any(
+                math.hypot((tri["x"] + tri["w"] / 2) - x1, (tri["y"] + tri["h"] / 2) - y1)
+                <= max(18, min(tri["w"], tri["h"]) * 1.8) for tri in triangles
+            )
+            if arrow_at_start and not arrow_at_end:
+                shape1, shape2 = shape2, shape1
+            direction = "arrow_candidate" if arrow_at_start or arrow_at_end else "undirected_candidate"
+            shape_connections.append((shape1, shape2, direction))
+        for index, (source_shape, target_shape, direction) in enumerate(shape_connections[:40], start=1):
+            confidence = 0.58 if direction == "arrow_candidate" else 0.42
+            evidence.append(
+                f"[VISION_SHAPE_CONNECTION id={index} from_shape={source_shape['id']} "
+                f"to_shape={target_shape['id']} direction={direction} confidence={confidence:.2f}]"
+            )
+        if not objects and not lines:
+            evidence.append("No stable geometric primitives were detected.")
+        evidence.append(
+            "Visual findings are heuristic candidates. OCR labels are proximity associations; "
+            "numeric chart values, series identity, causal meaning, and ambiguous arrow direction require verification."
         )
         return evidence
     except Exception:
         return ["Optional visual-structure analysis failed; OCR text is retained."]
 
 
+
+def _rescale_ocr_words(words: list[dict], source_size, target_size) -> list[dict]:
+    source_width, source_height = source_size or target_size
+    target_width, target_height = target_size
+    scale_x = target_width / max(1, source_width)
+    scale_y = target_height / max(1, source_height)
+    return [
+        {**word,
+         "left": int(round(word["left"] * scale_x)),
+         "top": int(round(word["top"] * scale_y)),
+         "width": max(1, int(round(word["width"] * scale_x))),
+         "height": max(1, int(round(word["height"] * scale_y)))}
+        for word in words
+    ]
+
+
 def _format_result(result: dict, image, source: str) -> str:
     text = result["text"]
     lines = _layout_lines(result["words"])
+    width, height = image.size
     sections = [
         f"[IMAGE: {source}]",
+        f"[IMAGE_DIMENSIONS width={width} height={height} coordinate_space=pixels]",
         f"[OCR_QUALITY mean_word_confidence={result['confidence']:.1f}/100 psm={result['psm']}]",
     ]
     if lines:
@@ -272,7 +464,7 @@ def _format_result(result: dict, image, source: str) -> str:
         sections.extend(["[OCR_LAYOUT]", *lines, "[/OCR_LAYOUT]"])
     elif text:
         sections.append(text)
-    visual = analyze_visual_structure(image)
+    visual = analyze_visual_structure(image, result["words"], result.get("image_size"))
     if visual:
         sections.extend(["[VISUAL_GEOMETRY]", *visual, "[/VISUAL_GEOMETRY]"])
     return "\n".join(section for section in sections if section is not None)

@@ -12,59 +12,75 @@ An extracted index is not a replacement for the source. Retrieve the original pa
 |---|---|---|
 | TXT, Markdown, RST, logs, source code | UTF-8 text | Invalid bytes are replaced with a warning; source remains authoritative |
 | CSV / TSV / JSON / JSONL / YAML / XML / HTML | Raw text | No general semantic schema inference or validation |
-| DOCX | Body paragraphs, headings, tables, headers, footers, footnotes, endnotes, comments, and tracked insertions/deletions | Does not reconstruct pagination, floating-object geometry, embedded media, or exact visual layout |
+| DOCX | Body paragraphs, headings, tables, headers, footers, footnotes, endnotes, comments, tracked insertions/deletions | Does not reconstruct exact pagination or all visual layout; embedded raster media is not automatically OCR-analyzed |
 | XLSX | Sheet visibility, cell addresses, text/numeric values, formulas and cached values, hidden rows/columns, merged ranges, defined names, cached chart data | Does not reproduce formatting, pivot tables, macros, external connections, validations, or formula recalculation |
-| PPTX | Slide text, basic tables, shape/image alt text, speaker notes, shape positions, and cached chart data | Does not reconstruct image content, diagrams, animation, or complete spatial layout |
+| PPTX | Slide text, basic tables, shape/image alt text, native object geometry, connector references, chart metadata and cached values | Does not reconstruct all image content, diagrams, animation, notes, or complete spatial layout |
 | PDF | Per-page text with [PAGE n] markers | Requires optional pypdf; scans, figures, complex tables, columns, and visual layout are not represented by text extraction |
-| PNG / JPEG / TIFF / BMP / WebP | Multi-pass OCR with word confidence and approximate line bounding boxes; optional geometric evidence when OpenCV is installed | Requires OCR extra, Tesseract executable, and language data; OpenCV geometry is not semantic chart/diagram understanding |
+| PNG / JPEG / TIFF / BMP / WebP | Multi-pass OCR with word confidence and pixel boxes; optional OpenCV candidate shapes, plot-area bounds, proximity labels, possible arrows, and tentative shape connections | Requires OCR extra, Tesseract executable, and language data; geometric classes and links are heuristic candidates, not verified semantic interpretations |
 
 Office ZIP/XML input is subject to archive-member, aggregate-size, entry-count, and compression-ratio safety limits. Legacy .doc, .xls, and .ppt formats are not supported.
 
-## Optional OCR
+## Source mapping and traceability
 
-OCR is local, opt-in, and never runs unless the user supplies `--ocr`. Install the Python dependencies:
+Each indexed chunk carries structured source-location metadata alongside its character offsets, line range, and content hash. The mapping is derived from format-specific extraction markers; it does not alter extracted text or the original file.
+
+| Source format | Location metadata |
+|---|---|
+| PDF | Page number, including pages that received OCR |
+| PPTX | Slide number, native object IDs, picture/chart-frame bounds, table markers, chart relationship targets, and connector endpoints |
+| XLSX | Worksheet name and cell references present in the chunk; chart identifier when cached chart data is present |
+| DOCX | Table sequence markers, inline/floating picture IDs, media relationships, extents, and anchor-relative offsets |
+| Standalone OCR images | Image identity, processed-image dimensions, OCR line boxes, and visual candidate regions |
+| Other text formats | Document identity and line range |
+
+The manifest includes a versioned `source_map` summary. Search results and `show` expose mapped source locations and region previews so retrieved passages can be traced to their source.
+
+### Image-region coordinates
+
+- OCR text lines carry approximate pixel bounding boxes (`x`, `y`, `width`, `height`) and mean word confidence. Coordinates are normalized back to the processed image dimensions after OCR preprocessing.
+- For scanned PDF pages, OCR boxes are relative to the rendered page image at the selected OCR DPI, not PDF points or the original embedded image.
+- DOCX inline and floating pictures carry native `wp:docPr` object IDs, media relationship targets, extents in EMUs, and (for floating anchors) raw offsets or alignment plus their `relativeFrom` reference frame. These are not absolute page coordinates.
+- PPTX picture and chart-frame objects carry native Office object IDs and bounding rectangles in slide EMUs when a complete transform exists. Explicit manual plot-area rectangles are normalized to chart-relative fractions.
+- PPTX shape and graphic-frame IDs are stable within their OOXML part. Native connector objects expose start/end shape IDs and connection-site indices; these are structural references, not proof of semantic or causal meaning.
+- Embedded Office charts expose chart families, titles, legends, axis metadata and indexed cached series values where present. Missing cache indices remain missing; values are not recalculated.
+- Raster visual analysis uses processed-image pixel coordinates. It can report candidate rectangles, ellipses, diamonds, triangles, plot-like axes and estimated plot bounds, nearby OCR words, possible arrowheads, and tentative shape-to-shape links when line endpoints are near two distinct detected shapes.
+- Coordinate spaces are explicit and are never silently converted between pixels, PDF points, slide EMUs, chart-relative fractions, and Word anchor-relative offsets.
+
+**Interpretation boundary:** OCR proximity does not prove that a word labels a shape. A candidate line does not prove a connector; a candidate arrowhead does not establish direction; and a geometric link does not establish semantic or causal meaning. Raster chart values and series are not reliably reconstructed from pixels. Use native Office chart caches and connector references when available, and verify consequential conclusions against the original source.
+
+Other limitations:
+- A chunk can span more than one page, slide, or marked region; all explicit regions represented in that chunk are retained.
+- DOCX table numbering and PPTX image numbering are extraction-order identifiers; native shape and picture IDs are scoped to their OOXML part.
+- Office embedded raster media is not automatically passed through OCR by this phase.
+- These are navigation hints, not reconstructed page geometry or a guarantee that every source element was extracted.
+
+## Optional OCR and visual analysis
+
+Install the Python dependencies:
 
 ~~~bash
 python -m pip install -e ".[ocr,vision]"
 ~~~
 
-Install the Tesseract OCR executable separately and install the language data you need. For Arabic and English together, pass `ara+eng`; both language packs must be present. The `vision` extra is optional and can be omitted when only OCR is needed.
-
-Check readiness:
+Install the Tesseract executable and language data separately. For Arabic and English, use `ara+eng` and ensure both language packs are installed.
 
 ~~~bash
 fidelityflow doctor
-~~~
-
-OCR a standalone image:
-
-~~~bash
 fidelityflow ingest "scanned-page.png" --ocr --ocr-lang ara+eng
-~~~
-
-OCR only sparse-text pages in a PDF:
-
-~~~bash
 fidelityflow ingest "scanned-report.pdf" --ocr --ocr-lang ara+eng --ocr-dpi 180 --ocr-max-pages 100
-~~~
-
-OCR images in a directory (image extensions are included only when `--ocr` is enabled):
-
-~~~bash
 fidelityflow ingest-dir "./scans" --ocr --ocr-lang ara+eng
 ~~~
 
 Controls:
 - `--ocr-dpi`: PDF page rasterization resolution, 100–300 DPI.
 - `--ocr-max-pages`: maximum sparse-text pages processed per PDF, 1–500.
-- OCR is attempted only on PDF pages with fewer than 40 extracted text characters. It does not OCR every page by default.
+- OCR is attempted only on PDF pages with fewer than 40 extracted text characters by default.
 - Image inputs are bounded by file-size and pixel-count safety limits.
-- OCR runs bounded preprocessing variants (contrast normalization, upscaling/sharpening, and thresholding), tries multiple page segmentation modes, and selects the strongest result using recognized-word confidence and text coverage. Orientation detection is applied only when Tesseract reports sufficient confidence.
-- Recognized lines retain approximate pixel bounding boxes and mean word confidence; coordinates refer to the processed image and are not a substitute for the original.
-- The optional `vision` extra installs OpenCV for conservative geometric evidence such as long horizontal/vertical/diagonal lines and substantial contours. It does not infer chart values, axis labels, arrow direction, flow semantics, or causal relationships.
-- OCR output remains approximate. Verify numbers, names, tables, and legal/financial text against the original.
+- OCR uses bounded preprocessing variants, multiple page segmentation modes, confidence scoring, and confidence-gated orientation correction.
+- OpenCV analysis is optional and emits geometric candidates only; it does not infer chart values or semantic diagram meaning.
+- Verify numbers, names, tables, and legal/financial text against the original.
 
-The Skill package includes the OCR Python module, but Claude.ai's managed workspace does not guarantee that the Tesseract executable, OCR language packs, or native dependencies are available. Do not promise OCR in Claude.ai. The supported and documented OCR route is the local CLI.
+Tesseract and native dependencies are not guaranteed in Claude.ai's managed Skill workspace. The dependable OCR route is the local CLI.
 
 ## Commands
 
@@ -74,44 +90,35 @@ fidelityflow ingest "report.pdf"
 fidelityflow ingest "scanned-report.pdf" --ocr --ocr-lang eng
 fidelityflow ingest "scan.png" --ocr --ocr-lang eng
 fidelityflow ingest-dir "./research-library"
-fidelityflow ingest-dir "./scans" --ocr --ocr-lang ara+eng
 fidelityflow list
 fidelityflow search --query "revenue recognition" --top-k 5
 fidelityflow show --document DOCUMENT_ID --chunk 0
 ~~~
 
-The bundled Claude Skill script can be run with the exact path exposed by the Skill execution environment:
-
-~~~bash
-python "/resolved/path/to/fidelityflow/scripts/fidelityflow.py" doctor
-python "/resolved/path/to/fidelityflow/scripts/fidelityflow.py" ingest "/exact/path/to/report.pdf" --cache-dir "$PWD/.fidelityflow/cache"
-python "/resolved/path/to/fidelityflow/scripts/fidelityflow.py" search --query "specific question" --top-k 5 --max-chars 1400 --cache-dir "$PWD/.fidelityflow/cache"
-~~~
-
-Never guess the Skill installation path. The local Python package is needed for the native Claude Code CLI; the bundled Skill script is packaged separately for Claude.ai.
+The bundled Claude Skill script can be run using the exact path exposed by the Skill execution environment. Never guess its absolute path.
 
 ## Search and retrieval
 
-- Search is lexical (BM25-style) and ranks extracted chunks by term overlap/frequency. Code identifiers are indexed both as written and as common underscore/CamelCase components (for example, `getUserProfile` also matches `get`, `user`, and `profile`). It is not semantic vector search.
-- Text, Markdown, and source-code chunks remain lossless. For supported source types, chunking prefers section headings and common function/class/type declarations when a safe boundary is available, then falls back to a line boundary.
-- Search excerpts preserve line breaks and indentation and are centered near a query match within the selected chunk. Use `show` to retrieve the complete chunk when a code edit or exact context requires it.
-- Search returns bounded excerpts and source metadata. Use show to retrieve a complete chunk only when needed.
-- Use alternate terms or native Claude search when lexical retrieval misses a relevant passage.
-- Preserve source names, PDF page markers, line ranges, and any available cell/slide identifiers when quoting results.
-- Do not ingest every repository or directory automatically. Select only sources relevant to the task.
+- Search is lexical (BM25-style), not semantic vector search.
+- Code identifiers are indexed both as written and as common underscore/CamelCase components.
+- Text, Markdown, and source-code chunks remain lossless. Chunking prefers headings and common function/class/type declarations when safe.
+- Search excerpts preserve line breaks and indentation and are centered near a query match. Use `show` when the complete chunk is required.
+- Use alternate terms or native Claude search when lexical retrieval misses a passage.
+- Preserve source names, page markers, line ranges, and available cell/slide identifiers when quoting results.
+- Do not ingest every repository or directory automatically; select only sources relevant to the task.
 
 ## Cache and privacy
 
 - Extracted content is stored once in the local cache; chunk metadata stores offsets rather than duplicating full text.
-- Cache entries are local and unencrypted. They can contain sensitive source material.
-- The cache is content-addressed; changed source content gets a new cache identity. OCR options are part of that identity.
-- Claude.ai Skill workspace caches may disappear after a reset or unrelated chat. Do not promise persistence.
-- Do not delete or replace the original source after indexing.
+- Cache entries are local and unencrypted and may contain sensitive source material.
+- Cache identity includes source content and relevant extractor/processing options.
+- Claude.ai Skill workspace caches may disappear after a reset or unrelated chat.
+- Never delete or replace the original source after indexing.
 
 ## Claude.ai upload boundary
 
-Claude.ai controls its own initial attachment ingestion and document parser. A custom Skill cannot intercept that pipeline, rewrite the attachment before Claude receives it, or guarantee that the initial upload avoids context/usage accounting.
+Claude.ai controls its initial attachment ingestion and document parser. A custom Skill cannot intercept that pipeline, rewrite the attachment before Claude receives it, or guarantee that the initial upload avoids context/usage accounting.
 
-When a file is already available in the Skill execution workspace, local extraction and bounded retrieval can avoid repeatedly printing its full content into the conversation. For recurring libraries, use Claude Projects and Project Knowledge when appropriate; do not duplicate a complete library in both systems without a measured benefit.
+When a file is available in the Skill execution workspace, local extraction and bounded retrieval can avoid repeatedly printing its full content into the conversation. For recurring libraries, use Claude Projects and Project Knowledge when appropriate.
 
-For visual PDFs, scanned pages, charts, spreadsheet calculations, and layout-sensitive tasks, prefer Claude's native document capabilities or a dedicated visual workflow. OCR recovers text; it does not reconstruct visual structure or replace image understanding.
+For visual PDFs, scanned pages, charts, spreadsheet calculations, and layout-sensitive tasks, prefer Claude's native document capabilities or a dedicated visual workflow. OCR recovers text; it does not replace image understanding.

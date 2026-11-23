@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib.util
+import io
 import json
 import os
 from pathlib import Path
@@ -9,6 +10,7 @@ import sys
 import tempfile
 import unittest
 import zipfile
+import xml.etree.ElementTree as ET
 
 ROOT = Path(__file__).resolve().parents[1]
 CLI = ROOT / "skills" / "fidelityflow" / "scripts" / "fidelityflow.py"
@@ -307,6 +309,83 @@ class FidelityFlowCliTests(unittest.TestCase):
             self.assertIn("[DELETED: Deleted text]", extracted)
             self.assertIn("Header text", extracted)
             self.assertIn("Footnote detail", extracted)
+
+    def test_source_map_retains_diagram_connector_endpoints(self):
+        module = load_module(CLI, "fidelityflow_connector_source_map_test")
+        source = (
+            "# Slide 1\n"
+            "[DIAGRAM_CONNECTOR id=7 name=Arrow_1 start=2:0 end=3:1]\n"
+        )
+        mapped, summary = module.build_source_map(source, ".pptx", max_chars=7000)
+        connector = next(region for region in mapped[0]["regions"] if region["kind"] == "diagram_connector")
+        self.assertEqual(connector["start"], "2:0")
+        self.assertEqual(connector["end"], "3:1")
+        self.assertIn("connector#7 2:0 -> 3:1", module.format_source_location(mapped[0]))
+
+    def test_source_map_retains_raster_visual_objects_charts_and_relations(self):
+        module = load_module(CLI, "fidelityflow_raster_source_map_test")
+        source = (
+            "[IMAGE: diagram.png]\n"
+            "[IMAGE_DIMENSIONS width=640 height=420 coordinate_space=pixels]\n"
+            "[VISION_OBJECT id=1 type=rectangle x=100 y=120 w=160 h=80 confidence=0.72 label=Start coordinate_space=pixels]\n"
+            "[VISION_CHART type=plot_candidate x=100 y=80 w=400 h=250 confidence=0.55 coordinate_space=pixels]\n"
+            "[VISION_RELATION id=1 type=arrow_candidate x1=260 y1=160 x2=340 y2=160 confidence=0.45 coordinate_space=pixels]\n"
+            "[VISION_SHAPE_CONNECTION id=1 from_shape=1 to_shape=2 direction=arrow_candidate confidence=0.58]\n"
+        )
+        mapped, summary = module.build_source_map(source, ".png", max_chars=7000)
+        kinds = {region["kind"] for region in mapped[0]["regions"]}
+        self.assertIn("visual_shape", kinds)
+        self.assertIn("visual_chart_candidate", kinds)
+        self.assertIn("visual_relation_candidate", kinds)
+        self.assertIn("visual_shape_connection", kinds)
+        shape = next(region for region in mapped[0]["regions"] if region["kind"] == "visual_shape")
+        self.assertEqual(shape["ocr_label"], "Start")
+        self.assertEqual(shape["bbox"]["width"], 160)
+        chart = next(region for region in mapped[0]["regions"] if region["kind"] == "visual_chart_candidate")
+        self.assertEqual(chart["bbox"]["width"], 400)
+        self.assertEqual(chart["image_dimensions"]["width"], 640)
+        self.assertIn("raster chart candidate", module.format_source_location(mapped[0]))
+
+    def test_chart_parser_extracts_type_title_axes_legend_and_indexed_points(self):
+        module = load_module(CLI, "fidelityflow_chart_semantics_test")
+        chart = """<c:chartSpace xmlns:c="http://schemas.openxmlformats.org/drawingml/2006/chart">
+          <c:chart><c:title><c:tx><c:rich><c:p><c:r><c:t>Quarterly Revenue</c:t></c:r></c:p></c:rich></c:tx></c:title>
+          <c:plotArea><c:barChart><c:ser><c:tx><c:strRef><c:strCache><c:pt idx="0"><c:v>Revenue</c:v></c:pt></c:strCache></c:strRef></c:tx>
+          <c:cat><c:strRef><c:strCache><c:pt idx="0"><c:v>Q1</c:v></c:pt><c:pt idx="2"><c:v>Q3</c:v></c:pt></c:strCache></c:strRef></c:cat>
+          <c:val><c:numRef><c:numCache><c:pt idx="0"><c:v>100</c:v></c:pt><c:pt idx="2"><c:v>300</c:v></c:pt></c:numCache></c:numRef></c:val>
+          </c:ser></c:barChart><c:catAx><c:axId val="1"/><c:title><c:tx><c:rich><c:p><c:r><c:t>Quarter</c:t></c:r></c:p></c:rich></c:tx></c:title></c:catAx>
+          <c:valAx><c:axId val="2"/><c:scaling><c:min val="0"/><c:max val="500"/></c:scaling></c:valAx></c:plotArea>
+          <c:legend><c:legendPos val="b"/></c:legend></c:chart></c:chartSpace>"""
+        buffer = io.BytesIO()
+        with zipfile.ZipFile(buffer, "w") as archive:
+            archive.writestr("chart.xml", chart)
+        buffer.seek(0)
+        with zipfile.ZipFile(buffer) as archive:
+            lines = module.parse_chart_xml(archive, "chart.xml")
+        joined = "\n".join(lines)
+        self.assertIn("[CHART_TYPE bar]", joined)
+        self.assertIn("[CHART_TITLE] Quarterly Revenue", joined)
+        self.assertIn('catAx id=1 title="Quarter"', joined)
+        self.assertIn("max=500", joined)
+        self.assertIn("[CHART_LEGEND present=true position=b]", joined)
+        self.assertIn("Categories: Q1 | Q3", joined)
+        self.assertIn("Category point indices: 0 | 2", joined)
+        self.assertIn("Values: 100 | 300", joined)
+        self.assertIn("Value point indices: 0 | 2", joined)
+
+    def test_pptx_extracts_native_connector_endpoints(self):
+        module = load_module(CLI, "fidelityflow_connector_semantics_test")
+        slide = """<p:sld xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main"
+          xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"><p:cSld><p:spTree>
+          <p:cxnSp><p:nvCxnSpPr><p:cNvPr id="7" name="Arrow 1"/><p:cNvCxnSpPr>
+          <a:stCxn id="2" idx="0"/><a:endCxn id="3" idx="1"/></p:cNvCxnSpPr></p:nvCxnSpPr></p:cxnSp>
+          </p:spTree></p:cSld></p:sld>"""
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "diagram.pptx"
+            with zipfile.ZipFile(path, "w") as archive:
+                archive.writestr("ppt/slides/slide1.xml", slide)
+            extracted, _ = module.parse_pptx(path)
+        self.assertIn("[DIAGRAM_CONNECTOR id=7 name=Arrow_1 start=2:0 end=3:1]", extracted)
 
     def test_xlsx_preserves_hidden_state_merged_ranges_and_chart_cache(self):
         module = load_module(CLI, "fidelityflow_xlsx_extended_test")
@@ -761,7 +840,7 @@ class UnifiedPackageCliTests(unittest.TestCase):
             capture_output=True, text=True, timeout=10,
         )
         self.assertEqual(version.returncode, 0, version.stderr)
-        self.assertIn("0.5.0", version.stdout)
+        self.assertIn("0.6.0", version.stdout)
 
 
 class InstallerTests(unittest.TestCase):
@@ -882,6 +961,156 @@ class InstallerTests(unittest.TestCase):
             self.assertEqual(proc.returncode, 3)
             self.assertIn("no files were changed", proc.stderr)
             self.assertFalse((base / "skills" / "fidelityflow").exists())
+
+
+class SourceMappingTests(unittest.TestCase):
+    def setUp(self):
+        self.module = load_module(CLI, "fidelityflow_source_mapping_test")
+
+    def test_source_map_tracks_multiple_pdf_pages_across_chunks(self):
+        source = "[PAGE 1]\n" + ("first page text\n" * 60) + "[PAGE 2]\n" + ("second page text\n" * 60)
+        mapped, summary = self.module.build_source_map(source, ".pdf", max_chars=500)
+        self.assertEqual(len(mapped), len(self.module.split_chunks(source, 500, ".pdf")))
+        self.assertIn(1, summary["pages"])
+        self.assertIn(2, summary["pages"])
+        self.assertTrue(all(item["line_start"] <= item["line_end"] for item in mapped))
+
+    def test_source_map_tracks_xlsx_sheet_and_cell_addresses(self):
+        source = "# Sheet: Revenue\nA1=Total | B1=100\nA2=Net income | B2=80\n"
+        mapped, summary = self.module.build_source_map(source, ".xlsx", max_chars=500)
+        self.assertEqual(summary["sheets"], ["Revenue"])
+        refs = mapped[0]["cell_refs"]
+        self.assertEqual(refs, ["A1", "B1", "A2", "B2"])
+        self.assertIn("sheet=Revenue", self.module.format_source_location(mapped[0]))
+
+    def test_source_map_tracks_pptx_slides_tables_and_images(self):
+        source = (
+            "# Slide 1\nIntro\n[TABLE]\nName | Value\n[/TABLE]\n"
+            "# Slide 2\n[IMAGE ALT TEXT: Revenue chart]\nConclusion\n"
+        )
+        mapped, summary = self.module.build_source_map(source, ".pptx", max_chars=500)
+        self.assertEqual(summary["slides"], [1, 2])
+        self.assertEqual(summary["tables"], 1)
+        self.assertEqual(summary["images"], 1)
+        rendered = " ".join(self.module.format_source_location(item) for item in mapped)
+        self.assertIn("slide=1", rendered)
+        self.assertIn("slide=2", rendered)
+        self.assertIn("table=1", rendered)
+        self.assertIn("image=1", rendered)
+
+    def test_source_map_tracks_ocr_pixel_regions_and_image_dimensions(self):
+        source = (
+            "[IMAGE: scan.png]\n"
+            "[IMAGE_DIMENSIONS width=1200 height=800 coordinate_space=pixels]\n"
+            "[OCR_QUALITY mean_word_confidence=91.0 psm=6]\n"
+            "[OCR_LAYOUT]\n"
+            "[OCR_LINE x=10:210 y=30:70 confidence=92] Revenue 2026\n"
+            "[/OCR_LAYOUT]\n"
+        )
+        mapped, summary = self.module.build_source_map(source, ".png", max_chars=7000)
+        self.assertEqual(summary["regions"], 1)
+        region = mapped[0]["regions"][0]
+        self.assertEqual(region["kind"], "ocr_text_line")
+        self.assertEqual(region["bbox"], {"x": 10, "y": 30, "width": 200, "height": 40})
+        self.assertEqual(region["image_dimensions"]["width"], 1200)
+        self.assertIn("OCR bbox(px)=10,30,200,40", self.module.format_source_location(mapped[0]))
+
+    def test_source_map_tracks_powerpoint_embedded_image_regions(self):
+        source = (
+            "# Slide 3\n"
+            "[SLIDE_DIMENSIONS cx=12192000 cy=6858000 coordinate_space=EMU]\n"
+            "[IMAGE ALT TEXT: Sales chart]\n"
+            "[IMAGE_REGION id=7 x=100000 y=200000 cx=3000000 cy=1800000 coordinate_space=slide_emu]\n"
+        )
+        mapped, summary = self.module.build_source_map(source, ".pptx", max_chars=7000)
+        self.assertEqual(summary["regions"], 1)
+        region = mapped[0]["regions"][0]
+        self.assertEqual(region["kind"], "embedded_image")
+        self.assertEqual(region["object_id"], "7")
+        self.assertEqual(region["slide_dimensions"]["cx"], 12192000)
+        self.assertIn("image#7 bbox(EMU)=100000,200000,3000000,1800000",
+                      self.module.format_source_location(mapped[0]))
+
+    def test_source_map_tracks_docx_floating_picture_anchor_and_relationship(self):
+        source = (
+            "## Document body\nParagraph text\n"
+            "[DOCX_IMAGE_REGION id=9 cx=914400 cy=457200 layout=floating rel=rId5 target=media/image2.png "
+            "x=1200 relative_x=page y=2400 relative_y=margin]\n"
+        )
+        mapped, summary = self.module.build_source_map(source, ".docx", max_chars=7000)
+        region = mapped[0]["regions"][0]
+        self.assertEqual(region["kind"], "docx_picture")
+        self.assertEqual(region["object_id"], "9")
+        self.assertEqual(region["layout"], "floating")
+        self.assertEqual(region["anchor"]["relative_x"], "page")
+        self.assertEqual(region["media_target"], "media/image2.png")
+
+    def test_docx_drawing_marker_handles_inline_and_floating_extent(self):
+        xml = """<w:p xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"
+          xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing"
+          xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"
+          xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
+          <w:r><w:drawing><wp:anchor><wp:positionH relativeFrom="page"><wp:posOffset>1200</wp:posOffset></wp:positionH>
+          <wp:positionV relativeFrom="margin"><wp:align>center</wp:align></wp:positionV>
+          <wp:extent cx="914400" cy="457200"/><wp:docPr id="9" name="Picture 2"/>
+          <a:blip r:embed="rId5"/></wp:anchor></w:drawing></w:r></w:p>"""
+        paragraph = ET.fromstring(xml)
+        markers = self.module._docx_drawing_markers(paragraph, {"rId5": "word/media/image2.png"})
+        self.assertEqual(len(markers), 1)
+        self.assertIn("layout=floating", markers[0])
+        self.assertIn("x=1200", markers[0])
+        self.assertIn("y=center", markers[0])
+        self.assertIn("target=word/media/image2.png", markers[0])
+
+    def test_chart_plot_area_marker_reads_only_complete_manual_geometry(self):
+        xml = b"""<c:chartSpace xmlns:c="http://schemas.openxmlformats.org/drawingml/2006/chart">
+          <c:chart><c:plotArea><c:layout><c:manualLayout><c:layoutTarget val="inner"/>
+          <c:x val="0.1"/><c:y val="0.2"/><c:w val="0.8"/><c:h val="0.7"/>
+          </c:manualLayout></c:layout></c:plotArea></c:chart></c:chartSpace>"""
+        buffer = io.BytesIO()
+        with zipfile.ZipFile(buffer, "w") as archive:
+            archive.writestr("ppt/charts/chart1.xml", xml)
+        buffer.seek(0)
+        with zipfile.ZipFile(buffer) as archive:
+            marker = self.module._chart_plot_area_marker(archive, "ppt/charts/chart1.xml", "14")
+            missing = self.module._chart_plot_area_marker(archive, "missing.xml", "14")
+        self.assertIn("id=14", marker)
+        self.assertIn("x=0.1 y=0.2 w=0.8 h=0.7", marker)
+        self.assertIsNone(missing)
+
+    def test_source_map_tracks_normalized_chart_plot_area(self):
+        source = (
+            "# Slide 2\n"
+            "[CHART_PLOT_AREA id=14 x=0.1 y=0.2 w=0.8 h=0.7 target=inner coordinate_space=chart_relative]\n"
+        )
+        mapped, summary = self.module.build_source_map(source, ".pptx", max_chars=7000)
+        region = next(item for item in mapped[0]["regions"] if item["kind"] == "chart_plot_area")
+        self.assertEqual(region["bbox"], {"x": 0.1, "y": 0.2, "width": 0.8, "height": 0.7})
+        self.assertEqual(region["coordinate_space"], "chart_relative")
+
+    def test_source_map_tracks_chart_frame_and_office_object_identity(self):
+        source = (
+            "# Slide 1\n[SLIDE_DIMENSIONS cx=12192000 cy=6858000 coordinate_space=EMU]\n"
+            "[CHART_REGION id=14 x=100 y=200 cx=3000 cy=1800 coordinate_space=slide_emu]\n"
+            "[OFFICE_OBJECT id=14 name=Chart_1 kind=graphicFrame]\n"
+        )
+        mapped, summary = self.module.build_source_map(source, ".pptx", max_chars=7000)
+        kinds = {region["kind"] for region in mapped[0]["regions"]}
+        self.assertIn("chart_frame", kinds)
+        self.assertIn("office_object", kinds)
+        self.assertIn("chart_frame#14 bbox(EMU)=100,200,3000,1800",
+                      self.module.format_source_location(mapped[0]))
+
+    def test_source_map_summary_does_not_claim_visual_geometry(self):
+        source = "# Slide 1\n[IMAGE: no alternative text provided]\n"
+        mapped, summary = self.module.build_source_map(source, ".pptx")
+        self.assertEqual(summary["version"], 2)
+        self.assertNotIn("coordinates", summary)
+        self.assertIn("image=1", self.module.format_source_location(mapped[0]))
+
+        image_map, image_summary = self.module.build_source_map("recognized OCR text\n", ".png")
+        self.assertEqual(image_summary["images"], 1)
+        self.assertIn("image=1", self.module.format_source_location(image_map[0]))
 
 
 if __name__ == "__main__":

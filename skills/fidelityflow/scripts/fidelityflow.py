@@ -25,7 +25,7 @@ import xml.etree.ElementTree as ET
 from datetime import datetime, timezone
 from collections import Counter
 
-VERSION = "0.5.0"  # Office extraction, OCR, code-aware chunking, and expanded identifier indexing.
+VERSION = "0.7.0"  # Structured source maps plus heuristic raster chart/diagram analysis.
 DEFAULT_CACHE = Path.cwd() / ".fidelityflow" / "cache"
 DEFAULT_ARCHIVE = Path.cwd() / ".fidelityflow" / "archive"
 CHUNK_CHARS = 7000
@@ -154,112 +154,197 @@ def _docx_table_text(table: ET.Element) -> list[str]:
     return rows
 
 
+def _docx_drawing_markers(paragraph: ET.Element, relationships: dict[str, str]) -> list[str]:
+    """Describe inline and floating Word pictures using native DrawingML anchors."""
+    markers = []
+    for drawing in (node for node in paragraph.iter() if local_name(node.tag) in {"inline", "anchor"}):
+        extent = next((node for node in drawing if local_name(node.tag) == "extent"), None)
+        doc_pr = next((node for node in drawing if local_name(node.tag) == "docPr"), None)
+        blip = next((node for node in drawing.iter() if local_name(node.tag) == "blip"), None)
+        if extent is None or doc_pr is None:
+            continue
+        cx, cy = extent.attrib.get("cx"), extent.attrib.get("cy")
+        if not (cx and cy and cx.isdigit() and cy.isdigit()):
+            continue
+        rel_id = next((value for key, value in (blip.attrib.items() if blip is not None else [])
+                       if local_name(key) == "embed"), "")
+        target = relationships.get(rel_id, "")
+        fields = [f"id={doc_pr.attrib.get('id', '?')}", f"cx={cx}", f"cy={cy}",
+                  f"layout={'floating' if local_name(drawing.tag) == 'anchor' else 'inline'}"]
+        if rel_id:
+            fields.append(f"rel={rel_id}")
+        if target:
+            fields.append(f"target={target.replace(' ', '%20')}")
+        if local_name(drawing.tag) == "anchor":
+            for axis, tag in (("x", "positionH"), ("y", "positionV")):
+                position = next((node for node in drawing if local_name(node.tag) == tag), None)
+                if position is not None:
+                    value = next((node for node in position if local_name(node.tag) in {"posOffset", "align"}), None)
+                    if value is not None and value.text is not None:
+                        fields.extend([f"{axis}={value.text.strip()}", f"relative_{axis}={position.attrib.get('relativeFrom', 'unknown')}"])
+        markers.append("[DOCX_IMAGE_REGION " + " ".join(fields) + "]")
+    return markers
+
+
 def extract_docx(path: Path) -> tuple[str, list[str]]:
     notes = [
         "DOCX extraction preserves paragraph order, heading styles, table text, tracked insertions/deletions, headers, footers, footnotes, endnotes, and comments.",
-        "Pagination, floating-object geometry, embedded media, and exact visual layout are not reproduced.",
+        "Inline and floating picture objects expose native DrawingML extent, object ID, relationship target, and anchor offsets/alignment when present; this is not page-layout reconstruction.",
+        "Word anchor offsets are relative to their declared reference frame and are not converted to absolute page coordinates.",
     ]
     output: list[str] = []
-
-    def append_part(title: str, root: ET.Element) -> None:
-        part_lines: list[str] = []
-
-        def visit(container: ET.Element) -> None:
-            for child in list(container):
-                kind = local_name(child.tag)
-                if kind == "p":
-                    text = docx_xml_text(child).strip()
-                    if not text:
-                        continue
-                    style = next((
-                        node.attrib.get(
-                            "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}val"
-                        )
-                        for node in child.iter() if local_name(node.tag) == "pStyle"
-                    ), "")
-                    if style and style.lower().startswith("heading"):
-                        level_match = re.search(r"(\d+)", style)
-                        level = min(int(level_match.group(1)), 6) if level_match else 2
-                        part_lines.append("#" * level + " " + text)
-                    else:
-                        part_lines.append(text)
-                elif kind == "tbl":
-                    rows = _docx_table_text(child)
-                    if rows:
-                        part_lines.extend(["[TABLE]", *rows, "[/TABLE]"])
-                else:
-                    # Notes and comments are nested below note/comment records,
-                    # unlike the direct paragraph children in word/document.xml.
-                    visit(child)
-
-        visit(root)
-        if part_lines:
-            output.append(f"## {title}")
-            output.extend(part_lines)
-
     with zipfile.ZipFile(path) as archive:
         validate_ooxml_archive(archive)
         names = set(archive.namelist())
+        relationships = _relationship_targets(archive, "word/_rels/document.xml.rels")
+
+        def append_part(title: str, root: ET.Element, include_drawing_markers: bool = False) -> None:
+            part_lines: list[str] = []
+            def visit(container: ET.Element) -> None:
+                for child in list(container):
+                    kind = local_name(child.tag)
+                    if kind == "p":
+                        value = docx_xml_text(child).strip()
+                        if value:
+                            style = next((node.attrib.get("{http://schemas.openxmlformats.org/wordprocessingml/2006/main}val")
+                                          for node in child.iter() if local_name(node.tag) == "pStyle"), "")
+                            if style and style.lower().startswith("heading"):
+                                level_match = re.search(r"(\d+)", style)
+                                level = min(int(level_match.group(1)), 6) if level_match else 2
+                                part_lines.append("#" * level + " " + value)
+                            else:
+                                part_lines.append(value)
+                        if include_drawing_markers:
+                            part_lines.extend(_docx_drawing_markers(child, relationships))
+                    elif kind == "tbl":
+                        rows = _docx_table_text(child)
+                        if rows:
+                            part_lines.extend(["[TABLE]", *rows, "[/TABLE]"])
+                    else:
+                        visit(child)
+            visit(root)
+            if part_lines:
+                output.append(f"## {title}")
+                output.extend(part_lines)
+
         document = ET.fromstring(read_ooxml_xml_member(archive, "word/document.xml"))
         body = next((node for node in document.iter() if local_name(node.tag) == "body"), None)
         if body is None:
             raise ValueError("DOCX has no document body")
-        append_part("Document body", body)
-
-        for member in sorted(
-            name for name in names
-            if re.fullmatch(r"word/(?:header|footer)\d+\.xml", name)
-        ):
+        append_part("Document body", body, include_drawing_markers=True)
+        for member in sorted(name for name in names if re.fullmatch(r"word/(?:header|footer)\d+\.xml", name)):
             root = ET.fromstring(read_ooxml_xml_member(archive, member))
             label = Path(member).stem.replace("header", "Header ").replace("footer", "Footer ")
             append_part(label, root)
-
-        for member, label in (
-            ("word/footnotes.xml", "Footnotes"),
-            ("word/endnotes.xml", "Endnotes"),
-            ("word/comments.xml", "Comments"),
-        ):
+        for member, label in (("word/footnotes.xml", "Footnotes"), ("word/endnotes.xml", "Endnotes"),
+                              ("word/comments.xml", "Comments")):
             if member in names:
-                root = ET.fromstring(read_ooxml_xml_member(archive, member))
-                append_part(label, root)
-
+                append_part(label, ET.fromstring(read_ooxml_xml_member(archive, member)))
     return "\n\n".join(output).rstrip(), notes
-def _chart_cache_values(parent: ET.Element | None) -> list[str]:
+
+def _chart_cache_points(parent: ET.Element | None) -> list[tuple[int, str]]:
+    """Return cached chart points in source index order without inventing missing values."""
     if parent is None:
         return []
-    values = []
+    points = []
     for node in parent.iter():
-        if local_name(node.tag) in {"v", "t"} and node.text is not None:
-            values.append(node.text)
-    return values
+        if local_name(node.tag) == "pt":
+            index = node.attrib.get("idx", str(len(points)))
+            value = next((child.text for child in node.iter()
+                          if local_name(child.tag) in {"v", "t"} and child.text is not None), None)
+            try:
+                point_index = int(index)
+            except (TypeError, ValueError):
+                point_index = len(points)
+            if value is not None:
+                points.append((point_index, value))
+    if points:
+        return sorted(points, key=lambda item: item[0])
+    return [(index, node.text) for index, node in enumerate(parent.iter())
+            if local_name(node.tag) in {"v", "t"} and node.text is not None]
+
+
+def _chart_text(parent: ET.Element | None) -> str:
+    if parent is None:
+        return ""
+    values = [node.text.strip() for node in parent.iter()
+              if local_name(node.tag) in {"v", "t"} and node.text and node.text.strip()]
+    return " ".join(values)
+
+
+def _chart_title(parent: ET.Element | None) -> str:
+    if parent is None:
+        return ""
+    # Title text lives in rich text runs or cached string references.
+    values = [node.text.strip() for node in parent.iter()
+              if local_name(node.tag) in {"t", "v"} and node.text and node.text.strip()]
+    return " ".join(values)
+
+
+def _chart_axis_metadata(root: ET.Element) -> list[str]:
+    axes = []
+    for axis in root.iter():
+        kind = local_name(axis.tag)
+        if kind not in {"catAx", "dateAx", "valAx", "serAx"}:
+            continue
+        axis_id = next((node.attrib.get("val") for node in axis
+                        if local_name(node.tag) == "axId"), "")
+        title = next((node for node in axis if local_name(node.tag) == "title"), None)
+        title_text = _chart_title(title)
+        scaling = next((node for node in axis if local_name(node.tag) == "scaling"), None)
+        bounds = {}
+        if scaling is not None:
+            for node in scaling:
+                if local_name(node.tag) in {"min", "max"} and node.attrib.get("val") is not None:
+                    bounds[local_name(node.tag)] = node.attrib["val"]
+        label = f"{kind} id={axis_id or '?'}"
+        if title_text:
+            label += f' title="{title_text}"'
+        if bounds:
+            label += " " + " ".join(f"{key}={value}" for key, value in bounds.items())
+        axes.append(label)
+    return axes
 
 
 def parse_chart_xml(archive: zipfile.ZipFile, member: str) -> list[str]:
-    """Extract cached category/value labels from an OOXML chart without recalculation."""
+    """Extract chart type, title, axes, legend, and indexed cached series data."""
     root = ET.fromstring(read_ooxml_xml_member(archive, member))
-    output = []
+    output = [f"[CHART_TYPE {local_name(node.tag)[:-5]}]" for node in root.iter()
+              if local_name(node.tag) in {"barChart", "lineChart", "pieChart", "doughnutChart",
+                                          "scatterChart", "areaChart", "radarChart", "stockChart",
+                                          "bubbleChart", "surfaceChart"}]
+    title = next((node for node in root.iter() if local_name(node.tag) == "title"), None)
+    title_text = _chart_title(title)
+    if title_text:
+        output.append(f'[CHART_TITLE] {title_text}')
+    legend = next((node for node in root.iter() if local_name(node.tag) == "legend"), None)
+    if legend is not None:
+        position = next((node.attrib.get("val") for node in legend
+                         if local_name(node.tag) == "legendPos"), "")
+        output.append(f"[CHART_LEGEND present=true position={position or 'unspecified'}]")
+    axes = _chart_axis_metadata(root)
+    if axes:
+        output.append("[CHART_AXES]")
+        output.extend(axes)
     series_nodes = [node for node in root.iter() if local_name(node.tag) == "ser"]
     for index, series in enumerate(series_nodes, start=1):
         title_node = next((node for node in series if local_name(node.tag) == "tx"), None)
-        title_values = _chart_cache_values(title_node)
-        title = " ".join(title_values).strip() or f"Series {index}"
-        category_node = next(
-            (node for node in series if local_name(node.tag) in {"cat", "xVal"}),
-            None,
-        )
-        value_node = next(
-            (node for node in series if local_name(node.tag) in {"val", "yVal"}),
-            None,
-        )
-        categories = _chart_cache_values(category_node)
-        values = _chart_cache_values(value_node)
-        output.append(f"{title}:")
+        series_title = _chart_text(title_node) or f"Series {index}"
+        category_node = next((node for node in series if local_name(node.tag) in {"cat", "xVal"}), None)
+        value_node = next((node for node in series if local_name(node.tag) in {"val", "yVal"}), None)
+        categories = _chart_cache_points(category_node)
+        values = _chart_cache_points(value_node)
+        output.append(f"[CHART_SERIES index={index} name={json.dumps(series_title, ensure_ascii=False)}]")
         if categories:
-            output.append("  Categories: " + " | ".join(categories))
+            output.append("  Categories: " + " | ".join(value for _, value in categories))
+            output.append("  Category point indices: " + " | ".join(str(idx) for idx, _ in categories))
         if values:
-            output.append("  Values: " + " | ".join(values))
+            output.append("  Values: " + " | ".join(value for _, value in values))
+            output.append("  Value point indices: " + " | ".join(str(idx) for idx, _ in values))
         if not categories and not values:
-            output.append("  No cached category/value data was embedded in this chart.")
+            output.append("  No cached category/value data was embedded in this series.")
+    if not series_nodes:
+        output.append("[CHART_DATA] No cached series were found.")
     return output
 
 
@@ -453,16 +538,82 @@ def _relationship_targets(archive: zipfile.ZipFile, rels_member: str) -> dict[st
     return output
 
 
+def _shape_region_marker(shape: ET.Element, marker: str) -> str | None:
+    """Return native OOXML transform coordinates without guessing missing geometry."""
+    transform = next((node for node in shape.iter() if local_name(node.tag) == "xfrm"), None)
+    if transform is None:
+        return None
+    offset = next((node for node in transform if local_name(node.tag) == "off"), None)
+    extent = next((node for node in transform if local_name(node.tag) == "ext"), None)
+    if offset is None or extent is None:
+        return None
+    values = {key: node.attrib.get(attr) for key, node, attr in (
+        ("x", offset, "x"), ("y", offset, "y"),
+        ("cx", extent, "cx"), ("cy", extent, "cy"),
+    )}
+    if not all(value is not None and re.fullmatch(r"-?\d+", value) for value in values.values()):
+        return None
+    non_visual = next((node for node in shape.iter() if local_name(node.tag) == "cNvPr"), None)
+    object_id = non_visual.attrib.get("id", "?") if non_visual is not None else "?"
+    return (
+        f"[{marker} id={object_id} x={values['x']} y={values['y']} "
+        f"cx={values['cx']} cy={values['cy']} coordinate_space=slide_emu]"
+    )
+
+
+def _chart_plot_area_marker(archive: zipfile.ZipFile, member: str, object_id: str) -> str | None:
+    """Expose explicitly stored manual plot-area layout in normalized chart coordinates."""
+    try:
+        root = ET.fromstring(read_ooxml_xml_member(archive, member))
+    except (KeyError, ET.ParseError, ValueError):
+        return None
+    plot_area = next((node for node in root.iter() if local_name(node.tag) == "plotArea"), None)
+    if plot_area is None:
+        return None
+    layout = next((node for node in plot_area.iter() if local_name(node.tag) == "layout"), None)
+    if layout is None:
+        return None
+    manual = next((node for node in layout.iter() if local_name(node.tag) == "manualLayout"), None)
+    if manual is None:
+        return None
+    values = {}
+    for child in manual.iter():
+        name = local_name(child.tag)
+        if name in {"x", "y", "w", "h"}:
+            raw = child.attrib.get("val")
+            try:
+                value = float(raw)
+            except (TypeError, ValueError):
+                continue
+            if math.isfinite(value) and 0.0 <= value <= 1.0:
+                values[name] = value
+    if set(values) != {"x", "y", "w", "h"}:
+        return None
+    target = next((node.attrib.get("val") for node in manual
+                   if local_name(node.tag) == "layoutTarget"), "inner")
+    return (f"[CHART_PLOT_AREA id={object_id} x={values['x']:.8g} y={values['y']:.8g} "
+            f"w={values['w']:.8g} h={values['h']:.8g} target={target or 'inner'} "
+            "coordinate_space=chart_relative]")
+
+
 def parse_pptx(path: Path) -> tuple[str, list[str]]:
     notes = [
-        "PPTX extraction preserves slide order, text, basic table content, shape alt text, speaker notes, and cached chart data.",
-        "Images, diagrams, animation, exact visual coordinates, and layout are not reconstructed; inspect the original slides for visual tasks.",
-        "Chart data is read from embedded cached values and may be stale if the workbook/chart source was not recalculated before saving.",
+        "PPTX extraction preserves slide order, text, basic table content, shape alt text, speaker notes, cached chart metadata/series, and native connector endpoints.",
+        "Embedded picture bounds and native diagram connector endpoint references are recorded when available. Raster image semantics, animation, and full visual layout are not reconstructed.",
+        "Chart family, cached title/legend/axis metadata, and indexed cached series points are extracted when present. Cached values may be stale if the workbook/chart source was not recalculated before saving; formulas are not recalculated.",
     ]
     output: list[str] = []
     with zipfile.ZipFile(path) as archive:
         validate_ooxml_archive(archive)
         names = set(archive.namelist())
+        presentation_size = None
+        if "ppt/presentation.xml" in names:
+            presentation_root = ET.fromstring(read_ooxml_xml_member(archive, "ppt/presentation.xml"))
+            slide_size = next((node for node in presentation_root.iter() if local_name(node.tag) == "sldSz"), None)
+            if slide_size is not None:
+                cx, cy = slide_size.attrib.get("cx"), slide_size.attrib.get("cy")
+                if cx and cy and cx.isdigit() and cy.isdigit():
+                    presentation_size = (cx, cy)
         slide_names = [
             name for name in names
             if re.fullmatch(r"ppt/slides/slide\d+\.xml", name)
@@ -473,6 +624,10 @@ def parse_pptx(path: Path) -> tuple[str, list[str]]:
             number = int(re.search(r"slide(\d+)", slide_member).group(1))
             root = ET.fromstring(read_ooxml_xml_member(archive, slide_member))
             output.append(f"# Slide {number}")
+            if presentation_size:
+                output.append(
+                    f"[SLIDE_DIMENSIONS cx={presentation_size[0]} cy={presentation_size[1]} coordinate_space=EMU]"
+                )
             rels_member = f"ppt/slides/_rels/slide{number}.xml.rels"
             relationships = _relationship_targets(archive, rels_member)
 
@@ -485,6 +640,8 @@ def parse_pptx(path: Path) -> tuple[str, list[str]]:
                     )
                     if non_visual is not None:
                         shape_name = non_visual.attrib.get("name")
+                        object_name = re.sub(r"[^A-Za-z0-9_.-]+", "_", shape_name or "unnamed")
+                        output.append(f"[OFFICE_OBJECT id={non_visual.attrib.get('id', '?')} name={object_name} kind=shape]")
                         alternative = non_visual.attrib.get("descr") or non_visual.attrib.get("title")
                         if alternative:
                             output.append(f"[SHAPE ALT TEXT: {alternative}]")
@@ -514,6 +671,18 @@ def parse_pptx(path: Path) -> tuple[str, list[str]]:
                                 paragraphs.append(paragraph_text)
                     output.extend(paragraphs)
 
+                elif kind == "cxnSp":
+                    connector = next((node for node in shape.iter() if local_name(node.tag) == "cNvCxnSpPr"), None)
+                    non_visual = next((node for node in shape.iter() if local_name(node.tag) == "cNvPr"), None)
+                    start_connection = next((node for node in shape.iter() if local_name(node.tag) == "stCxn"), None)
+                    end_connection = next((node for node in shape.iter() if local_name(node.tag) == "endCxn"), None)
+                    connector_id = non_visual.attrib.get("id", "?") if non_visual is not None else "?"
+                    connector_name = re.sub(r"[^A-Za-z0-9_.-]+", "_", non_visual.attrib.get("name", "connector")) if non_visual is not None else "connector"
+                    start_id = start_connection.attrib.get("id", "") if start_connection is not None else ""
+                    end_id = end_connection.attrib.get("id", "") if end_connection is not None else ""
+                    start_idx = start_connection.attrib.get("idx", "") if start_connection is not None else ""
+                    end_idx = end_connection.attrib.get("idx", "") if end_connection is not None else ""
+                    output.append(f"[DIAGRAM_CONNECTOR id={connector_id} name={connector_name} start={start_id}:{start_idx} end={end_id}:{end_idx}]")
                 elif kind == "pic":
                     non_visual = next(
                         (node for node in shape.iter() if local_name(node.tag) == "cNvPr"),
@@ -525,8 +694,28 @@ def parse_pptx(path: Path) -> tuple[str, list[str]]:
                             output.append(f"[IMAGE ALT TEXT: {alternative}]")
                         else:
                             output.append("[IMAGE: no alternative text provided]")
+                    region_marker = _shape_region_marker(shape, "IMAGE_REGION")
+                    if region_marker:
+                        output.append(region_marker)
 
                 elif kind == "graphicFrame":
+                    non_visual = next((node for node in shape.iter() if local_name(node.tag) == "cNvPr"), None)
+                    if non_visual is not None:
+                        chart_rel = next((node.attrib.get("id") for node in shape.iter()
+                                          if local_name(node.tag) == "chart" and node.attrib.get("id")), "")
+                        chart_target = relationships.get(chart_rel, "")
+                        if chart_rel:
+                            if chart_target and chart_target in names:
+                                plot_marker = _chart_plot_area_marker(archive, chart_target, non_visual.attrib.get("id", "?"))
+                                if plot_marker:
+                                    output.append(plot_marker)
+                            frame_marker = _shape_region_marker(shape, "CHART_REGION")
+                            if frame_marker:
+                                output.append(frame_marker)
+                        object_name = re.sub(r"[^A-Za-z0-9_.-]+", "_", non_visual.attrib.get("name", "unnamed"))
+                        output.append(f"[OFFICE_OBJECT id={non_visual.attrib.get('id', '?')} name={object_name} kind=graphicFrame]")
+                        if chart_rel:
+                            output.append(f"[CHART_REFERENCE rel={chart_rel} target={chart_target or 'unknown'}]")
                     rows = []
                     for row in shape.iter():
                         if local_name(row.tag) == "tr":
@@ -631,7 +820,7 @@ def parse_pdf(
 def expected_extractor(path: Path, ocr: bool = False) -> str | None:
     suffix = normalized_suffix(path)
     if suffix in OCR_IMAGE_SUFFIXES:
-        return "image-ocr-tesseract-v2" if ocr else None
+        return "image-ocr-tesseract-v3" if ocr else None
     if suffix == ".docx":
         return "docx-stdlib-v2"
     if suffix == ".xlsx":
@@ -639,7 +828,7 @@ def expected_extractor(path: Path, ocr: bool = False) -> str | None:
     if suffix == ".pptx":
         return "pptx-stdlib-v2"
     if suffix == ".pdf":
-        return "pdf-pypdf-ocr-v2" if ocr else "pdf-pypdf-v1"
+        return "pdf-pypdf-ocr-v3" if ocr else "pdf-pypdf-v1"
     text_suffixes = {
         ".txt", ".md", ".markdown", ".rst", ".log", ".csv", ".tsv",
         ".json", ".jsonl", ".yaml", ".yml", ".xml", ".html", ".htm",
@@ -664,7 +853,7 @@ def extract_file(
             raise RuntimeError("Image files require explicit --ocr and the optional OCR dependencies.")
         engine = _load_ocr_engine()
         text, notes = engine.extract_image(path, language=ocr_lang)
-        return text, notes, "image-ocr-tesseract-v2"
+        return text, notes, "image-ocr-tesseract-v3"
     if suffix == ".docx":
         text, notes = extract_docx(path)
         return text, notes, "docx-stdlib-v2"
@@ -676,7 +865,7 @@ def extract_file(
         return text, notes, "pptx-stdlib-v2"
     if suffix == ".pdf":
         text, notes = parse_pdf(path, ocr, ocr_lang, ocr_dpi, ocr_max_pages)
-        return text, notes, "pdf-pypdf-ocr-v2" if ocr else "pdf-pypdf-v1"
+        return text, notes, "pdf-pypdf-ocr-v3" if ocr else "pdf-pypdf-v1"
     if suffix in {".doc", ".xls", ".ppt"}:
         raise RuntimeError(
             f"Legacy Office format {suffix} is not supported. Save as DOCX, XLSX, or PPTX first, or use Claude's native file handling."
@@ -813,6 +1002,427 @@ def split_chunks(
         index += 1
     assert "".join(chunk["text"] for chunk in chunks) == text
     return chunks
+def build_source_map(
+    text: str, source_suffix: str | None = None, max_chars: int = CHUNK_CHARS,
+    chunks: list[dict] | None = None,
+) -> tuple[list[dict], dict]:
+    """Map extracted chunks to explicit page, slide, sheet, table, image, and chart markers.
+
+    Mapping is based on extractor-emitted text markers and cell references only.
+    It is navigational provenance, not reconstructed visual geometry.
+    """
+    suffix = (source_suffix or "").casefold()
+    lines = []
+    offset = 0
+    for line_number, line in enumerate(text.splitlines(keepends=True), start=1):
+        content = line.rstrip("\r\n")
+        lines.append((offset, offset + len(line), line_number, content))
+        offset += len(line)
+
+    events: list[tuple[int, dict]] = []
+    counters = Counter()
+    active: dict = {"kind": "image", "image": 1} if suffix in OCR_IMAGE_SUFFIXES else {"kind": "document"}
+    if suffix in OCR_IMAGE_SUFFIXES:
+        counters["image"] = 1
+    initial_location = dict(active)
+
+    for start, end, line_number, line in lines:
+        stripped = line.strip()
+        location = None
+        match = re.match(r"^\[PAGE\s+(\d+)\]$", stripped, re.IGNORECASE)
+        if match:
+            location = {"kind": "page", "page": int(match.group(1))}
+        else:
+            match = re.match(r"^#\s*Slide\s+(\d+)\b", stripped, re.IGNORECASE)
+            if match:
+                location = {"kind": "slide", "slide": int(match.group(1))}
+            else:
+                match = re.match(r"^#\s*Sheet:\s*(.+?)\s*$", stripped, re.IGNORECASE)
+                if match:
+                    location = {"kind": "sheet", "sheet": match.group(1)}
+                elif stripped == "[TABLE]":
+                    counters["table"] += 1
+                    location = {"kind": "table", "table": counters["table"]}
+                elif stripped.startswith(("[IMAGE:", "[IMAGE ALT TEXT:", "[SHAPE ALT TEXT:")):
+                    if suffix in OCR_IMAGE_SUFFIXES and active.get("kind") == "image" and counters["image"] == 1:
+                        location = {"kind": "image", "image": 1}
+                    else:
+                        counters["image"] += 1
+                        location = {"kind": "image", "image": counters["image"]}
+                else:
+                    match = re.match(r"^###\s*Chart:\s*(.+?)\s*$", stripped, re.IGNORECASE)
+                    if match:
+                        counters["chart"] += 1
+                        location = {
+                            "kind": "chart", "chart": match.group(1),
+                            "chart_index": counters["chart"],
+                        }
+        if location:
+            location["line"] = line_number
+            active = location
+            events.append((start, dict(location)))
+        else:
+            dimensions = re.match(
+                r"^\[IMAGE_DIMENSIONS width=(\d+) height=(\d+) coordinate_space=pixels\]$",
+                stripped,
+            )
+            if dimensions:
+                events.append((start, {
+                    "_context": True,
+                    "image_dimensions": {
+                        "width": int(dimensions.group(1)),
+                        "height": int(dimensions.group(2)),
+                        "coordinate_space": "pixels",
+                    },
+                }))
+            else:
+                slide_dimensions = re.match(
+                    r"^\[SLIDE_DIMENSIONS cx=(\d+) cy=(\d+) coordinate_space=EMU\]$",
+                    stripped,
+                )
+                if slide_dimensions:
+                    events.append((start, {
+                        "_context": True,
+                        "slide_dimensions": {
+                            "cx": int(slide_dimensions.group(1)),
+                            "cy": int(slide_dimensions.group(2)),
+                            "coordinate_space": "EMU",
+                        },
+                    }))
+                else:
+                    ocr_region = re.match(
+                        r"^\[OCR_LINE x=(\d+):(\d+) y=(\d+):(\d+) confidence=([0-9.]+)\]",
+                        stripped,
+                    )
+                    image_region = re.match(
+                        r"^\[IMAGE_REGION id=(\S+) x=(-?\d+) y=(-?\d+) cx=(\d+) cy=(\d+) coordinate_space=slide_emu\]$",
+                        stripped,
+                    )
+                    if ocr_region:
+                        events.append((start, {
+                            "_region": {
+                                "kind": "ocr_text_line",
+                                "bbox": {
+                                    "x": int(ocr_region.group(1)),
+                                    "y": int(ocr_region.group(3)),
+                                    "width": int(ocr_region.group(2)) - int(ocr_region.group(1)),
+                                    "height": int(ocr_region.group(4)) - int(ocr_region.group(3)),
+                                },
+                                "coordinate_space": "pixels",
+                                "confidence": float(ocr_region.group(5)),
+                            },
+                        }))
+                    elif image_region:
+                        events.append((start, {
+                            "_region": {
+                                "kind": "embedded_image",
+                                "object_id": image_region.group(1),
+                                "bbox": {
+                                    "x": int(image_region.group(2)),
+                                    "y": int(image_region.group(3)),
+                                    "width": int(image_region.group(4)),
+                                    "height": int(image_region.group(5)),
+                                },
+                                "coordinate_space": "slide_emu",
+                            },
+                        }))
+
+        if suffix == ".xlsx" or active.get("kind") == "sheet":
+            refs = re.findall(r"(?<![A-Za-z0-9_])([A-Z]{1,3}\d+)\s*(?==|formula=)", line)
+            if refs:
+                cell_location = dict(active)
+                cell_location["cell_refs"] = list(dict.fromkeys(refs))[:50]
+                cell_location["line"] = line_number
+                events.append((start, cell_location))
+
+    region_events: list[tuple[int, dict]] = []
+    current_image_dimensions = None
+    current_slide_dimensions = None
+    for line_start, _, _, raw_line in lines:
+        marker = raw_line.strip()
+        dimensions_match = re.match(
+            r"^\[IMAGE_DIMENSIONS width=(\d+) height=(\d+) coordinate_space=pixels\]$", marker
+        )
+        if dimensions_match:
+            current_image_dimensions = {
+                "width": int(dimensions_match.group(1)),
+                "height": int(dimensions_match.group(2)),
+                "coordinate_space": "pixels",
+            }
+            continue
+        slide_match = re.match(
+            r"^\[SLIDE_DIMENSIONS cx=(\d+) cy=(\d+) coordinate_space=EMU\]$", marker
+        )
+        if slide_match:
+            current_slide_dimensions = {
+                "cx": int(slide_match.group(1)),
+                "cy": int(slide_match.group(2)),
+                "coordinate_space": "EMU",
+            }
+            continue
+        ocr_match = re.match(
+            r"^\[OCR_LINE x=(\d+):(\d+) y=(\d+):(\d+) confidence=([0-9.]+)\]", marker
+        )
+        if ocr_match:
+            region_events.append((line_start, {
+                "kind": "ocr_text_line",
+                "bbox": {
+                    "x": int(ocr_match.group(1)),
+                    "y": int(ocr_match.group(3)),
+                    "width": int(ocr_match.group(2)) - int(ocr_match.group(1)),
+                    "height": int(ocr_match.group(4)) - int(ocr_match.group(3)),
+                },
+                "coordinate_space": "pixels",
+                "confidence": float(ocr_match.group(5)),
+                "image_dimensions": current_image_dimensions,
+            }))
+            continue
+        picture_match = re.match(
+            r"^\[(IMAGE|CHART)_REGION id=(\S+) x=(-?\d+) y=(-?\d+) cx=(\d+) cy=(\d+) coordinate_space=slide_emu\]$",
+            marker,
+        )
+        if picture_match:
+            region_events.append((line_start, {
+                "kind": "embedded_image" if picture_match.group(1) == "IMAGE" else "chart_frame",
+                "object_id": picture_match.group(2),
+                "bbox": {"x": int(picture_match.group(3)), "y": int(picture_match.group(4)),
+                         "width": int(picture_match.group(5)), "height": int(picture_match.group(6))},
+                "coordinate_space": "slide_emu", "slide_dimensions": current_slide_dimensions,
+            }))
+            continue
+        plot_match = re.match(
+            r"^\[CHART_PLOT_AREA id=(\S+) x=([0-9.eE+-]+) y=([0-9.eE+-]+) w=([0-9.eE+-]+) h=([0-9.eE+-]+) target=(\S+) coordinate_space=chart_relative\]$",
+            marker,
+        )
+        if plot_match:
+            region_events.append((line_start, {
+                "kind": "chart_plot_area", "object_id": plot_match.group(1),
+                "bbox": {"x": float(plot_match.group(2)), "y": float(plot_match.group(3)),
+                         "width": float(plot_match.group(4)), "height": float(plot_match.group(5))},
+                "layout_target": plot_match.group(6), "coordinate_space": "chart_relative",
+            }))
+            continue
+        docx_match = re.match(r"^\[DOCX_IMAGE_REGION (.+)\]$", marker)
+        if docx_match:
+            fields = dict(re.findall(r"(\w+)=([^ ]+)", docx_match.group(1)))
+            region = {"kind": "docx_picture", "object_id": fields.get("id"), "layout": fields.get("layout"),
+                      "extent_emu": {"width": int(fields["cx"]), "height": int(fields["cy"])}}
+            if fields.get("target"):
+                region["media_target"] = fields["target"]
+            if fields.get("rel"):
+                region["relationship_id"] = fields["rel"]
+            for axis in ("x", "y"):
+                if axis in fields:
+                    try:
+                        region.setdefault("anchor", {})[axis] = int(fields[axis])
+                    except ValueError:
+                        region.setdefault("anchor", {})[axis + "_alignment"] = fields[axis]
+                if "relative_" + axis in fields:
+                    region.setdefault("anchor", {})["relative_" + axis] = fields["relative_" + axis]
+            region["coordinate_space"] = "word_anchor_relative" if fields.get("layout") == "floating" else "inline_extent"
+            region_events.append((line_start, region))
+            continue
+        vision_object = re.match(
+            r"^\[VISION_OBJECT id=(\S+) type=(\S+) x=(\d+) y=(\d+) w=(\d+) h=(\d+) confidence=([0-9.]+) label=(\S+) coordinate_space=pixels\]$",
+            marker,
+        )
+        if vision_object:
+            region_events.append((line_start, {
+                "kind": "visual_shape", "object_id": vision_object.group(1),
+                "shape_type": vision_object.group(2),
+                "bbox": {"x": int(vision_object.group(3)), "y": int(vision_object.group(4)),
+                         "width": int(vision_object.group(5)), "height": int(vision_object.group(6))},
+                "confidence": float(vision_object.group(7)),
+                "image_dimensions": current_image_dimensions,
+                "ocr_label": None if vision_object.group(8) == "none" else vision_object.group(8),
+                "coordinate_space": "pixels",
+            }))
+            continue
+        vision_chart = re.match(
+            r"^\[VISION_CHART type=(\S+) x=(\d+) y=(\d+) w=(\d+) h=(\d+) confidence=([0-9.]+) coordinate_space=pixels\]$",
+            marker,
+        )
+        if vision_chart:
+            region_events.append((line_start, {
+                "kind": "visual_chart_candidate", "chart_type": vision_chart.group(1),
+                "bbox": {"x": int(vision_chart.group(2)), "y": int(vision_chart.group(3)),
+                         "width": int(vision_chart.group(4)), "height": int(vision_chart.group(5))},
+                "confidence": float(vision_chart.group(6)), "coordinate_space": "pixels",
+                "image_dimensions": current_image_dimensions,
+            }))
+            continue
+        vision_relation = re.match(
+            r"^\[VISION_RELATION id=(\S+) type=(\S+) x1=(\d+) y1=(\d+) x2=(\d+) y2=(\d+) confidence=([0-9.]+) coordinate_space=pixels\]$",
+            marker,
+        )
+        if vision_relation:
+            region_events.append((line_start, {
+                "kind": "visual_relation_candidate", "object_id": vision_relation.group(1),
+                "relation_type": vision_relation.group(2),
+                "start": {"x": int(vision_relation.group(3)), "y": int(vision_relation.group(4))},
+                "end": {"x": int(vision_relation.group(5)), "y": int(vision_relation.group(6))},
+                "confidence": float(vision_relation.group(7)), "coordinate_space": "pixels",
+                "image_dimensions": current_image_dimensions,
+            }))
+            continue
+        vision_connection = re.match(
+            r"^\[VISION_SHAPE_CONNECTION id=(\S+) from_shape=(\S+) to_shape=(\S+) direction=(\S+) confidence=([0-9.]+)\]$",
+            marker,
+        )
+        if vision_connection:
+            region_events.append((line_start, {
+                "kind": "visual_shape_connection", "object_id": vision_connection.group(1),
+                "from_shape": vision_connection.group(2), "to_shape": vision_connection.group(3),
+                "direction": vision_connection.group(4), "confidence": float(vision_connection.group(5)),
+            }))
+            continue
+        connector_match = re.match(
+            r"^\[DIAGRAM_CONNECTOR id=(\S+) name=(\S+) start=(\S+) end=(\S+)\]$", marker
+        )
+        if connector_match:
+            region_events.append((line_start, {
+                "kind": "diagram_connector", "object_id": connector_match.group(1),
+                "name": connector_match.group(2), "start": connector_match.group(3),
+                "end": connector_match.group(4), "relationship_semantics": "native_shape_connection",
+            }))
+            continue
+        office_match = re.match(r"^\[OFFICE_OBJECT id=(\S+) name=(\S+) kind=(\S+)\]$", marker)
+        if office_match:
+            region_events.append((line_start, {"kind": "office_object", "object_id": office_match.group(1),
+                                              "name": office_match.group(2), "object_type": office_match.group(3)}))
+
+    events.sort(key=lambda item: item[0])
+    if chunks is None:
+        chunks = split_chunks(text, max_chars=max_chars, source_suffix=source_suffix)
+    mapped = []
+    event_index = 0
+    region_index = 0
+    active_location: dict = initial_location
+    for chunk in chunks:
+        while event_index < len(events) and events[event_index][0] < chunk["char_start"]:
+            _, event = events[event_index]
+            if event.get("_context"):
+                active_location.update({key: value for key, value in event.items() if key != "_context"})
+            elif not event.get("cell_refs") and not event.get("_region"):
+                active_location = dict(event)
+            event_index += 1
+
+        units = [{key: value for key, value in active_location.items() if key not in {"cell_refs"}}]
+        cell_refs = []
+        regions = []
+        while event_index < len(events) and events[event_index][0] < chunk["char_end"]:
+            _, event = events[event_index]
+            if event.get("_region"):
+                pass
+            elif event.get("_context"):
+                active_location.update({key: value for key, value in event.items() if key != "_context"})
+            elif event.get("cell_refs"):
+                cell_refs.extend(event["cell_refs"])
+            else:
+                unit = dict(event)
+                if unit not in units:
+                    units.append(unit)
+                inherited = {}
+                if event.get("kind") == "image":
+                    for key in ("image_dimensions", "slide_dimensions"):
+                        if active_location.get(key):
+                            inherited[key] = active_location[key]
+                if event.get("kind") == "slide" and active_location.get("slide_dimensions"):
+                    inherited["slide_dimensions"] = active_location["slide_dimensions"]
+                active_location = {**inherited, **event}
+            event_index += 1
+
+        location = {
+            "kind": units[-1].get("kind", "document") if len(units) == 1 else "multiple",
+            "locations": units,
+            "line_start": chunk["line_start"],
+            "line_end": chunk["line_end"],
+        }
+        while region_index < len(region_events) and region_events[region_index][0] < chunk["char_start"]:
+            region_index += 1
+        while region_index < len(region_events) and region_events[region_index][0] < chunk["char_end"]:
+            regions.append(region_events[region_index][1])
+            region_index += 1
+        if cell_refs:
+            location["cell_refs"] = list(dict.fromkeys(cell_refs))[:50]
+        if regions:
+            location["regions"] = regions[:500]
+        mapped.append(location)
+
+    summary = {
+        "version": 2,
+        "chunk_count": len(mapped),
+        "located_chunks": sum(
+            1 for item in mapped
+            if any(unit.get("kind") != "document" for unit in item["locations"])
+        ),
+        "pages": sorted({unit["page"] for item in mapped for unit in item["locations"] if "page" in unit}),
+        "slides": sorted({unit["slide"] for item in mapped for unit in item["locations"] if "slide" in unit}),
+        "sheets": sorted({unit["sheet"] for item in mapped for unit in item["locations"] if "sheet" in unit}),
+        "tables": counters["table"],
+        "images": counters["image"],
+        "charts": counters["chart"],
+        "regions": sum(len(item.get("regions", [])) for item in mapped),
+    }
+    return mapped, summary
+
+def format_source_location(location: dict | None) -> str:
+    """Render compact provenance for every source unit represented in a chunk."""
+    if not isinstance(location, dict):
+        return "document"
+    rendered = []
+    units = location.get("locations") or [location]
+    for unit in units:
+        parts = []
+        for key, label in (("page", "page"), ("slide", "slide"), ("sheet", "sheet"),
+                           ("table", "table"), ("image", "image"), ("chart", "chart")):
+            if unit.get(key) is not None:
+                parts.append(f"{label}={unit[key]}")
+        if not parts:
+            parts.append(str(unit.get("kind", "document")))
+        rendered.append(", ".join(parts))
+    if location.get("cell_refs"):
+        refs = location["cell_refs"]
+        rendered.append("cells=" + ",".join(refs[:12]) + ("…" if len(refs) > 12 else ""))
+    regions = location.get("regions", [])
+    if regions:
+        rendered.append(f"regions={len(regions)}")
+        for region in regions[:3]:
+            bbox = region.get("bbox", {})
+            if region.get("kind") == "ocr_text_line":
+                rendered.append(
+                    "OCR bbox(px)="
+                    f"{bbox.get('x')},{bbox.get('y')},{bbox.get('width')},{bbox.get('height')}"
+                    f" conf={region.get('confidence', '?')}"
+                )
+            elif region.get("kind") in {"embedded_image", "chart_frame"}:
+                rendered.append(f"{region.get('kind')}#{region.get('object_id')} bbox(EMU)="
+                                f"{bbox.get('x')},{bbox.get('y')},{bbox.get('width')},{bbox.get('height')}")
+            elif region.get("kind") == "chart_plot_area":
+                rendered.append(f"chart_plot#{region.get('object_id')} bbox(relative)="
+                                f"{bbox.get('x')},{bbox.get('y')},{bbox.get('width')},{bbox.get('height')} "
+                                f"target={region.get('layout_target')}")
+            elif region.get("kind") == "docx_picture":
+                anchor = region.get("anchor", {})
+                rendered.append(f"DOCX image#{region.get('object_id')} {region.get('layout')} "
+                                f"extent(EMU)={region.get('extent_emu', {}).get('width')}x{region.get('extent_emu', {}).get('height')} anchor={anchor}")
+            elif region.get("kind") == "office_object":
+                rendered.append(f"Office {region.get('object_type')}#{region.get('object_id')} {region.get('name')}")
+            elif region.get("kind") == "diagram_connector":
+                rendered.append(f"connector#{region.get('object_id')} {region.get('start')} -> {region.get('end')}")
+            elif region.get("kind") == "visual_shape":
+                rendered.append(f"{region.get('shape_type')}#{region.get('object_id')} bbox={bbox.get('x')},{bbox.get('y')},{bbox.get('width')},{bbox.get('height')} label={region.get('ocr_label') or 'unread'}")
+            elif region.get("kind") == "visual_chart_candidate":
+                rendered.append(f"raster chart candidate ({region.get('chart_type')}, confidence={region.get('confidence')})")
+            elif region.get("kind") == "visual_relation_candidate":
+                rendered.append(f"{region.get('relation_type')} candidate {region.get('start')} -> {region.get('end')}")
+            elif region.get("kind") == "visual_shape_connection":
+                rendered.append(f"shape#{region.get('from_shape')} -> shape#{region.get('to_shape')} ({region.get('direction')}, confidence={region.get('confidence')})")
+        if len(regions) > 3:
+            rendered.append(f"+{len(regions) - 3} more regions")
+    rendered.append(f"lines={location.get('line_start', '?')}-{location.get('line_end', '?')}")
+    return " | ".join(dict.fromkeys(rendered))
+
 def default_cache_dir(value: str | None) -> Path:
     return Path(value).expanduser().resolve() if value else DEFAULT_CACHE.resolve()
 
@@ -914,6 +1524,11 @@ def cmd_ingest(args: argparse.Namespace) -> int:
         print(f"Extraction failed: extractor mismatch ({extractor} != {extractor_expected})", file=sys.stderr)
         return 3
     chunks = split_chunks(text, args.chunk_chars, source_suffix=normalized_suffix(path))
+    source_locations, source_map_summary = build_source_map(
+        text, normalized_suffix(path), args.chunk_chars, chunks=chunks
+    )
+    for chunk, location in zip(chunks, source_locations):
+        chunk["source_location"] = location
     atomic_write_text(doc_dir / "content.txt", text)
     # Store text once. The index stores offsets, source locations, hashes,
     # and term frequencies only, allowing ranking before reading source text.
@@ -942,6 +1557,7 @@ def cmd_ingest(args: argparse.Namespace) -> int:
         "line_count": text.count("\n") + (1 if text else 0),
         "chunk_count": len(chunks),
         "chunk_chars": args.chunk_chars,
+        "source_map": source_map_summary,
         "processing": {"ocr": ocr_enabled, "ocr_lang": ocr_lang, "ocr_dpi": ocr_dpi, "ocr_max_pages": ocr_max_pages},
         "warnings": notes,
         "content_file": "content.txt",
@@ -1090,7 +1706,8 @@ def cmd_search(args: argparse.Namespace) -> int:
         content = content_cache[content_file]
         full_text = content[chunk["char_start"]:chunk["char_end"]]
         excerpt = build_excerpt(full_text, args.query, args.max_chars)
-        print(f"\n## Result {rank} | score={score:.3f} | {chunk['source_name']} | doc={chunk['document_id']} chunk={chunk['chunk']} lines={chunk['line_start']}-{chunk['line_end']}")
+        location = format_source_location(chunk.get("source_location"))
+        print(f"\n## Result {rank} | score={score:.3f} | {chunk['source_name']} | doc={chunk['document_id']} chunk={chunk['chunk']} | {location}")
         print(excerpt)
     if not scored:
         print("No lexical matches. Try alternate terms or use Claude's native Project search for semantic retrieval.")
@@ -1124,7 +1741,8 @@ def cmd_show(args: argparse.Namespace) -> int:
         return 2
     record = records[args.chunk]
     chunk_text = content[record["char_start"]:record["char_end"]]
-    print(f"[SOURCE: {manifest['source_name']} | SHA256: {manifest['sha256']} | CHUNK: {record['chunk']} | LINES: {record['line_start']}-{record['line_end']}]")
+    location = format_source_location(record.get("source_location"))
+    print(f"[SOURCE: {manifest['source_name']} | SHA256: {manifest['sha256']} | CHUNK: {record['chunk']} | {location}]")
     print(chunk_text, end="" if chunk_text.endswith("\n") else "\n")
     return 0
 
