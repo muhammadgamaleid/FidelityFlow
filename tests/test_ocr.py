@@ -66,6 +66,50 @@ class OptionalOCRTests(unittest.TestCase):
             self.assertIn("recognized page content", extracted)
             self.assertTrue(any("fake OCR warning" in item for item in warnings))
 
+
+    def test_ocr_layout_lines_keep_coordinates_confidence_and_reading_order(self):
+        engine = load_module(OCR_PATH, "fidelityflow_ocr_layout_test")
+        words = [
+            {"text": "world", "confidence": 90, "left": 80, "top": 10, "width": 30, "height": 12, "block": 1, "paragraph": 1, "line": 1},
+            {"text": "Hello", "confidence": 80, "left": 10, "top": 10, "width": 40, "height": 12, "block": 1, "paragraph": 1, "line": 1},
+        ]
+        lines = engine._layout_lines(words)
+        self.assertEqual(len(lines), 1)
+        self.assertIn("x=10:110", lines[0])
+        self.assertIn("y=10:22", lines[0])
+        self.assertIn("confidence=85", lines[0])
+        self.assertTrue(lines[0].endswith("Hello world"))
+
+    def test_formatted_ocr_does_not_duplicate_recognized_text(self):
+        engine = load_module(OCR_PATH, "fidelityflow_ocr_format_test")
+        engine.analyze_visual_structure = lambda image: []
+        result = {
+            "text": "alpha beta",
+            "words": [
+                {"text": "alpha", "confidence": 90, "left": 1, "top": 2, "width": 10, "height": 5, "block": 1, "paragraph": 1, "line": 1},
+                {"text": "beta", "confidence": 80, "left": 15, "top": 2, "width": 10, "height": 5, "block": 1, "paragraph": 1, "line": 1},
+            ],
+            "confidence": 85.0,
+            "psm": 6,
+        }
+        output = engine._format_result(result, object(), "sample.png")
+        self.assertEqual(output.count("alpha"), 1)
+        self.assertEqual(output.count("beta"), 1)
+        self.assertIn("mean_word_confidence=85.0", output)
+        self.assertIn("[OCR_LAYOUT]", output)
+
+    def test_preprocessing_produces_bounded_grayscale_sharp_and_threshold_variants(self):
+        try:
+            from PIL import Image, ImageEnhance, ImageFilter, ImageOps
+        except ImportError:
+            self.skipTest("Pillow is an optional OCR dependency")
+        engine = load_module(OCR_PATH, "fidelityflow_ocr_preprocess_test")
+        source = Image.new("RGB", (500, 300), "white")
+        variants = engine._preprocess_variants(source, ImageOps, ImageEnhance, ImageFilter)
+        self.assertEqual([name for name, _ in variants], ["contrast", "sharp", "threshold"])
+        self.assertTrue(all(image.mode == "L" for _, image in variants))
+        self.assertTrue(all(image.width <= 2200 and image.height <= 2200 for _, image in variants))
+
     def test_cli_help_documents_ocr_switches(self):
         result = subprocess.run(
             [sys.executable, str(CLI_PATH), "ingest", "--help"],
