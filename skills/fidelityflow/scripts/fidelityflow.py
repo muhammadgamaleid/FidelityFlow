@@ -1066,6 +1066,24 @@ def format_source_location(location: dict | None) -> str:
     if location.get("cell_refs"):
         refs = location["cell_refs"]
         rendered.append("cells=" + ",".join(refs[:12]) + ("…" if len(refs) > 12 else ""))
+    regions = location.get("regions", [])
+    if regions:
+        rendered.append(f"regions={len(regions)}")
+        for region in regions[:3]:
+            bbox = region.get("bbox", {})
+            if region.get("kind") == "ocr_text_line":
+                rendered.append(
+                    "OCR bbox(px)="
+                    f"{bbox.get('x')},{bbox.get('y')},{bbox.get('width')},{bbox.get('height')}"
+                    f" conf={region.get('confidence', '?')}"
+                )
+            elif region.get("kind") == "embedded_image":
+                rendered.append(
+                    f"image#{region.get('object_id')} bbox(EMU)="
+                    f"{bbox.get('x')},{bbox.get('y')},{bbox.get('width')},{bbox.get('height')}"
+                )
+        if len(regions) > 3:
+            rendered.append(f"+{len(regions) - 3} more regions")
     rendered.append(f"lines={location.get('line_start', '?')}-{location.get('line_end', '?')}")
     return " | ".join(dict.fromkeys(rendered))
 
