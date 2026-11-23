@@ -60,6 +60,7 @@ Optional hooks run in Claude Code after the user installs them. They are not ava
 
 Current hook transformations:
 - Exact repeated large Read result: first full result passes through; one identical repeat may be suppressed; the next identical request passes through in full as a recovery safeguard.
+- Exact repeated plain-text Grep, Glob, WebSearch, WebFetch, NotebookRead, and eligible standard text-only MCP results: suppression requires matching tool name, canonical input, and output hash; one repeat may be suppressed, then a full recovery result is allowed. Structured MCP content, images, errors, and unknown response shapes pass through unchanged.
 - Test-output compaction: only narrowly recognized successful pytest, unittest, Go test, and Cargo test output, when the event and content meet conservative conditions.
 
 The Bash output hook archives original stdout before compaction. Failed executions, stderr, unknown commands, diffs, structured output, likely secrets, and ambiguous content should pass through unchanged.
