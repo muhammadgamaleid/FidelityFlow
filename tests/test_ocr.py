@@ -113,7 +113,7 @@ class OptionalOCRTests(unittest.TestCase):
 
     def test_formatted_ocr_does_not_duplicate_recognized_text(self):
         engine = load_module(OCR_PATH, "fidelityflow_ocr_format_test")
-        engine.analyze_visual_structure = lambda image: []
+        engine.analyze_visual_structure = lambda image, words=None, ocr_size=None: []
         result = {
             "text": "alpha beta",
             "words": [
