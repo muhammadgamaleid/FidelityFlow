@@ -1265,6 +1265,17 @@ def build_source_map(
                 "image_dimensions": current_image_dimensions,
             }))
             continue
+        vision_connection = re.match(
+            r"^\[VISION_SHAPE_CONNECTION id=(\S+) from_shape=(\S+) to_shape=(\S+) direction=(\S+) confidence=([0-9.]+)\]$",
+            marker,
+        )
+        if vision_connection:
+            region_events.append((line_start, {
+                "kind": "visual_shape_connection", "object_id": vision_connection.group(1),
+                "from_shape": vision_connection.group(2), "to_shape": vision_connection.group(3),
+                "direction": vision_connection.group(4), "confidence": float(vision_connection.group(5)),
+            }))
+            continue
         connector_match = re.match(
             r"^\[DIAGRAM_CONNECTOR id=(\S+) name=(\S+) start=(\S+) end=(\S+)\]$", marker
         )
@@ -1405,6 +1416,8 @@ def format_source_location(location: dict | None) -> str:
                 rendered.append(f"raster chart candidate ({region.get('chart_type')}, confidence={region.get('confidence')})")
             elif region.get("kind") == "visual_relation_candidate":
                 rendered.append(f"{region.get('relation_type')} candidate {region.get('start')} -> {region.get('end')}")
+            elif region.get("kind") == "visual_shape_connection":
+                rendered.append(f"shape#{region.get('from_shape')} -> shape#{region.get('to_shape')} ({region.get('direction')}, confidence={region.get('confidence')})")
         if len(regions) > 3:
             rendered.append(f"+{len(regions) - 3} more regions")
     rendered.append(f"lines={location.get('line_start', '?')}-{location.get('line_end', '?')}")
