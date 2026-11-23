@@ -184,9 +184,45 @@ python install.py --scope user --enable-output-hook
 
 The installer backs up an existing settings file before updating it. Hook archives and caches are local and unencrypted; protect them accordingly. To disable the hooks, remove only the FidelityFlow hook registrations from Claude settings. Do not replace your entire settings file.
 
-### Option B — Load the Plugin from a local checkout (development/testing)
+### Option B — Install the Plugin from the GitHub marketplace
 
-To test the Plugin manifest and bundled Skill without installing it permanently:
+The repository includes a Claude Code marketplace manifest. The GitHub repository must be reachable by your Git credentials; private repositories require you to have access.
+
+1. Add the FidelityFlow marketplace:
+
+```bash
+claude plugin marketplace add muhammadgamaleid/FidelityFlow
+```
+
+2. Install the plugin for your user:
+
+```bash
+claude plugin install fidelityflow@fidelityflow --scope user
+```
+
+3. Start or restart Claude Code, then verify:
+
+```bash
+claude plugin list
+```
+
+4. To update later:
+
+```bash
+claude plugin update fidelityflow@fidelityflow
+```
+
+5. To uninstall:
+
+```bash
+claude plugin uninstall fidelityflow@fidelityflow
+```
+
+The Plugin installs the Skill component. It does not install FidelityFlow's Python CLI or enable the optional Python hooks; complete Option A as well if you need those local runtime features.
+
+### Option C — Load the Plugin from a local checkout (development/testing)
+
+To test uncommitted Plugin changes without installing them:
 
 ```bash
 git clone https://github.com/muhammadgamaleid/FidelityFlow.git
@@ -194,7 +230,7 @@ cd FidelityFlow
 claude --plugin-dir .
 ```
 
-This loads the local plugin for that Claude Code session. It is a development/test path; it does not install the Python runtime or enable the optional local hooks. Use Option A for the supported persistent Skill + CLI + hooks setup.
+This loads the local plugin for that Claude Code session only. See the official [Claude Code plugin installation guide](https://code.claude.com/docs/en/plugins/install) for scope and marketplace details.
 
 ### Install optional OCR and visual analysis
 
