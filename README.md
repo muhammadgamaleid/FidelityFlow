@@ -125,7 +125,8 @@ OCR is opt-in, processes only sparse-text PDF pages by default, and respects DPI
 | Lexical search and bounded excerpt retrieval | Yes | Yes |
 | Code-aware identifier matching and symbol-aware chunk boundaries | Yes | Yes |
 | Line-preserving excerpts centered around query matches | Yes | Yes |
-| Optional local OCR for images and sparse-text PDF pages | Not guaranteed in Skill VM | Yes, with OCR dependencies |
+| Optional local multi-pass OCR with confidence and line coordinates | Not guaranteed in Skill VM | Yes, with OCR dependencies and Tesseract language data |
+| Optional visual geometry cues (OpenCV) | Not guaranteed in Skill VM | Yes, with the separate `vision` extra |
 | Exact repeated large `Read` suppression | — | Optional hook |
 | Exact repeated plain-text search and MCP results | — | Optional hook; one repeat only, with recovery read |
 | Narrow successful test-output compaction | — | Optional hook; original stdout archived locally |
