@@ -984,6 +984,16 @@ class SourceMappingTests(unittest.TestCase):
         self.assertIn("y=center", markers[0])
         self.assertIn("target=word/media/image2.png", markers[0])
 
+    def test_source_map_tracks_normalized_chart_plot_area(self):
+        source = (
+            "# Slide 2\n"
+            "[CHART_PLOT_AREA id=14 x=0.1 y=0.2 w=0.8 h=0.7 target=inner coordinate_space=chart_relative]\n"
+        )
+        mapped, summary = self.module.build_source_map(source, ".pptx", max_chars=7000)
+        region = next(item for item in mapped[0]["regions"] if item["kind"] == "chart_plot_area")
+        self.assertEqual(region["bbox"], {"x": 0.1, "y": 0.2, "width": 0.8, "height": 0.7})
+        self.assertEqual(region["coordinate_space"], "chart_relative")
+
     def test_source_map_tracks_chart_frame_and_office_object_identity(self):
         source = (
             "# Slide 1\n[SLIDE_DIMENSIONS cx=12192000 cy=6858000 coordinate_space=EMU]\n"
