@@ -336,9 +336,11 @@ def parse_chart_xml(archive: zipfile.ZipFile, member: str) -> list[str]:
         values = _chart_cache_points(value_node)
         output.append(f"[CHART_SERIES index={index} name={json.dumps(series_title, ensure_ascii=False)}]")
         if categories:
-            output.append("  Categories: " + " | ".join(f"{idx}={value}" for idx, value in categories))
+            output.append("  Categories: " + " | ".join(value for _, value in categories))
+            output.append("  Category point indices: " + " | ".join(str(idx) for idx, _ in categories))
         if values:
-            output.append("  Values: " + " | ".join(f"{idx}={value}" for idx, value in values))
+            output.append("  Values: " + " | ".join(value for _, value in values))
+            output.append("  Value point indices: " + " | ".join(str(idx) for idx, _ in values))
         if not categories and not values:
             output.append("  No cached category/value data was embedded in this series.")
     if not series_nodes:
@@ -671,7 +673,7 @@ def parse_pptx(path: Path) -> tuple[str, list[str]]:
 
                 elif kind == "cxnSp":
                     connector = next((node for node in shape.iter() if local_name(node.tag) == "cNvCxnSpPr"), None)
-                    non_visual = next((node for node in connector or [] if local_name(node.tag) == "cNvPr"), None)
+                    non_visual = next((node for node in shape.iter() if local_name(node.tag) == "cNvPr"), None)
                     start_connection = next((node for node in shape.iter() if local_name(node.tag) == "stCxn"), None)
                     end_connection = next((node for node in shape.iter() if local_name(node.tag) == "endCxn"), None)
                     connector_id = non_visual.attrib.get("id", "?") if non_visual is not None else "?"
