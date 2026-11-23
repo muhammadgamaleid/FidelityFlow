@@ -59,7 +59,10 @@ Controls:
 - `--ocr-max-pages`: maximum sparse-text pages processed per PDF, 1–500.
 - OCR is attempted only on PDF pages with fewer than 40 extracted text characters. It does not OCR every page by default.
 - Image inputs are bounded by file-size and pixel-count safety limits.
-- OCR runs bounded preprocessing variants (contrast normalization, upscaling/sharpening, and thresholding), tries multiple page segmentation modes, and selects the strongest result using recognized-word confidence and text coverage. Orientation detection is applied only when Tesseract reports sufficient confidence.\n- Recognized lines retain approximate pixel bounding boxes and mean word confidence; coordinates refer to the processed image and are not a substitute for the original.\n- The optional `vision` extra installs OpenCV for conservative geometric evidence such as long horizontal/vertical/diagonal lines and substantial contours. It does not infer chart values, axis labels, arrow direction, flow semantics, or causal relationships.\n- OCR output remains approximate. Verify numbers, names, tables, and legal/financial text against the original.
+- OCR runs bounded preprocessing variants (contrast normalization, upscaling/sharpening, and thresholding), tries multiple page segmentation modes, and selects the strongest result using recognized-word confidence and text coverage. Orientation detection is applied only when Tesseract reports sufficient confidence.
+- Recognized lines retain approximate pixel bounding boxes and mean word confidence; coordinates refer to the processed image and are not a substitute for the original.
+- The optional `vision` extra installs OpenCV for conservative geometric evidence such as long horizontal/vertical/diagonal lines and substantial contours. It does not infer chart values, axis labels, arrow direction, flow semantics, or causal relationships.
+- OCR output remains approximate. Verify numbers, names, tables, and legal/financial text against the original.
 
 The Skill package includes the OCR Python module, but Claude.ai's managed workspace does not guarantee that the Tesseract executable, OCR language packs, or native dependencies are available. Do not promise OCR in Claude.ai. The supported and documented OCR route is the local CLI.
 
