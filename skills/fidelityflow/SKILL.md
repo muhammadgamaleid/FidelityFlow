@@ -51,7 +51,7 @@ Do not print an entire extracted document, cache, or archive into chat. Search f
 - DOCX extraction does not preserve exact pagination, embedded media, or all review/layout metadata.
 - XLSX extraction is not a spreadsheet calculation engine and does not reproduce charts, pivots, macros, or recalculation semantics.
 - PPTX extraction does not fully represent images, diagrams, notes, animations, or spatial layout.
-- Standalone image OCR and sparse-text PDF page OCR are available only in the local CLI with the optional OCR dependencies, the Tesseract executable, and language data installed. They require explicit `--ocr`; they are not guaranteed to run in Claude.ai's managed Skill workspace.
+- Standalone image OCR and sparse-text PDF page OCR are available only in the local CLI with the optional OCR dependencies, the Tesseract executable, and language data installed. They require explicit `--ocr`; they are not guaranteed to run in Claude.ai's managed Skill workspace. The OCR pipeline uses bounded multi-pass preprocessing, confidence scoring, and approximate line bounding boxes.\n- The optional OpenCV `vision` extra can report geometric evidence (line orientation/counts and contours) for images and OCR-rendered PDF pages. It does not interpret chart data, arrow direction, flow semantics, or the meaning of a diagram. For semantic visual questions, use Claude's native vision capabilities and verify against the original.
 - Audio and video extraction are not currently supported.
 - The original file remains authoritative. An extracted index is a searchable derivative, not a replacement.
 
