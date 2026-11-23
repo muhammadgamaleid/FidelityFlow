@@ -1020,8 +1020,10 @@ def build_source_map(
                 if unit not in units:
                     units.append(unit)
                 inherited = {}
-                if event.get("kind") == "image" and active_location.get("image_dimensions"):
-                    inherited["image_dimensions"] = active_location["image_dimensions"]
+                if event.get("kind") == "image":
+                    for key in ("image_dimensions", "slide_dimensions"):
+                        if active_location.get(key):
+                            inherited[key] = active_location[key]
                 if event.get("kind") == "slide" and active_location.get("slide_dimensions"):
                     inherited["slide_dimensions"] = active_location["slide_dimensions"]
                 active_location = {**inherited, **event}
