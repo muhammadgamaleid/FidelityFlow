@@ -147,8 +147,8 @@ def _best_ocr(image, language: str):
         for psm in (6, 11):
             try:
                 result = _run_ocr(candidate, language, psm)
-            except RuntimeError:
-                # A timeout on one strategy must not prevent remaining safe attempts.
+            except (RuntimeError, pytesseract.TesseractError):
+                # A timeout or failed segmentation pass must not prevent remaining attempts.
                 continue
             if best is None or result["score"] > best["score"]:
                 best = result
