@@ -127,7 +127,7 @@ OCR is opt-in, processes only sparse-text PDF pages by default, and respects DPI
 | Line-preserving excerpts centered around query matches | Yes | Yes |
 | Source mapping for pages/slides/sheets/cells, OCR pixel regions, DOCX floating-picture anchors, and native PPTX picture/chart-frame bounds | Yes | Yes |
 | Optional local multi-pass OCR with confidence and line coordinates | Not guaranteed in Skill VM | Yes, with OCR dependencies and Tesseract language data |
-| Optional raster visual candidates (OpenCV) | Not guaranteed in Skill VM | Yes, with the separate `vision` extra; candidate shapes, plot-like axes, proximity-linked OCR labels, and possible arrows |
+| Optional raster visual candidates (OpenCV) | Not guaranteed in Skill VM | Yes, with the separate `vision` extra; candidate shapes, approximate plot bounds, proximity-linked OCR labels, possible arrows, and tentative shape-to-shape flowchart links |
 | Exact repeated large `Read` suppression | — | Optional hook |
 | Exact repeated plain-text search and MCP results | — | Optional hook; one repeat only, with recovery read |
 | Narrow successful test-output compaction | — | Optional hook; original stdout archived locally |
