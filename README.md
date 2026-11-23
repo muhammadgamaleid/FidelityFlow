@@ -7,6 +7,7 @@
 A local-first toolkit for Claude that indexes files, retrieves relevant source passages, and applies conservative, recoverable context optimizations in Claude Code.
 
 [![Tests](https://github.com/muhammadgamaleid/FidelityFlow/actions/workflows/tests.yml/badge.svg?branch=main)](https://github.com/muhammadgamaleid/FidelityFlow/actions/workflows/tests.yml)
+[![Latest Release](https://img.shields.io/github/v/release/muhammadgamaleid/FidelityFlow)](https://github.com/muhammadgamaleid/FidelityFlow/releases/latest)
 ![Python](https://img.shields.io/badge/Python-3.10%2B-3776AB?logo=python&logoColor=white)
 ![Version](https://img.shields.io/badge/version-0.6.0-blue)
 ![License](https://img.shields.io/badge/license-MIT-green)
@@ -29,7 +30,7 @@ A local-first toolkit for Claude that indexes files, retrieves relevant source p
 
 </div>
 
-> **Project status:** active development. FidelityFlow does not advertise a token- or cost-saving percentage. Any optimization must be measured against actual usage and task quality before a quantitative claim is made.
+> **Current release: v0.6.0.** FidelityFlow does not advertise a token- or cost-saving percentage. Any optimization must be measured against actual usage and task quality before a quantitative claim is made.
 
 ## Why FidelityFlow?
 
@@ -186,7 +187,7 @@ The installer backs up an existing settings file before updating it. Hook archiv
 
 ### Option B — Install the Plugin from the GitHub marketplace
 
-The repository includes a Claude Code marketplace manifest. The GitHub repository must be reachable by your Git credentials; private repositories require you to have access. **This repository is currently private**, so only authorized GitHub users can install from its marketplace or download its releases. Public distribution requires the repository owner to change visibility or publish the Plugin through Anthropic's directory.
+The repository includes a Claude Code marketplace manifest. The GitHub repository must be reachable by your Git credentials; for a public repository, no special repository access is required.
 
 1. Add the FidelityFlow marketplace:
 
