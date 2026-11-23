@@ -189,6 +189,11 @@ Features remain labelled as planned until implemented and tested. See [the engin
 - Skill-workspace cache persistence across unrelated chats or VM resets is not guaranteed.
 - Unknown, ambiguous, structured, failed, or sensitive tool output must pass through unchanged unless a format-specific adapter proves a safe transformation.
 
+## Project policies
+
+- [Contributing guide](CONTRIBUTING.md)
+- [Security policy](SECURITY.md)
+
 ## License
 
 MIT — see [LICENSE](LICENSE).
