@@ -262,8 +262,10 @@ def analyze_visual_structure(image) -> list[str]:
 def _format_result(result: dict, image, source: str) -> str:
     text = result["text"]
     lines = _layout_lines(result["words"])
+    width, height = image.size
     sections = [
         f"[IMAGE: {source}]",
+        f"[IMAGE_DIMENSIONS width={width} height={height} coordinate_space=pixels]",
         f"[OCR_QUALITY mean_word_confidence={result['confidence']:.1f}/100 psm={result['psm']}]",
     ]
     if lines:
