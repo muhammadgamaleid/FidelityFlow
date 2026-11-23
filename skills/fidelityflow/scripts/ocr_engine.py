@@ -309,8 +309,10 @@ def analyze_visual_structure(image, words: list[dict] | None = None, ocr_size=No
             if not duplicate:
                 filtered.append(item)
         objects = filtered[:80]
-        word_scale_x = width / max(1, max((word["left"] + word["width"] for word in (words or [])), default=width))
-        word_scale_y = height / max(1, max((word["top"] + word["height"] for word in (words or [])), default=height))
+        ocr_width = max(1, int(ocr_size[0])) if ocr_size else width
+        ocr_height = max(1, int(ocr_size[1])) if ocr_size else height
+        word_scale_x = width / ocr_width
+        word_scale_y = height / ocr_height
         normalized_words = _vision_words(words or [], word_scale_x, word_scale_y)
         evidence = [f"Image dimensions: {width}x{height} pixels."]
         evidence.append(
