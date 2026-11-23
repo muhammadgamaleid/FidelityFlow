@@ -889,6 +889,8 @@ def build_source_map(
         base = prior[-1][1] if prior else {"kind": "document"}
         units.append({key: value for key, value in base.items() if key != "cell_refs"})
         for _, event in current:
+            if event.get("cell_refs"):
+                continue
             unit = {key: value for key, value in event.items() if key != "cell_refs"}
             if unit not in units:
                 units.append(unit)
