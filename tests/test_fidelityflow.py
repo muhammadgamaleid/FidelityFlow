@@ -988,8 +988,7 @@ class SourceMappingTests(unittest.TestCase):
     def test_chart_plot_area_marker_reads_only_complete_manual_geometry(self):
         xml = b"""<c:chartSpace xmlns:c="http://schemas.openxmlformats.org/drawingml/2006/chart">
           <c:chart><c:plotArea><c:layout><c:manualLayout><c:layoutTarget val="inner"/>
-          <c:x><c:val val="0.1"/></c:x><c:y><c:val val="0.2"/></c:y>
-          <c:w><c:val val="0.8"/></c:w><c:h><c:val val="0.7"/></c:h>
+          <c:x val="0.1"/><c:y val="0.2"/><c:w val="0.8"/><c:h val="0.7"/>
           </c:manualLayout></c:layout></c:plotArea></c:chart></c:chartSpace>"""
         buffer = io.BytesIO()
         with zipfile.ZipFile(buffer, "w") as archive:
@@ -997,9 +996,10 @@ class SourceMappingTests(unittest.TestCase):
         buffer.seek(0)
         with zipfile.ZipFile(buffer) as archive:
             marker = self.module._chart_plot_area_marker(archive, "ppt/charts/chart1.xml", "14")
+            missing = self.module._chart_plot_area_marker(archive, "missing.xml", "14")
         self.assertIn("id=14", marker)
         self.assertIn("x=0.1 y=0.2 w=0.8 h=0.7", marker)
-        self.assertIsNone(self.module._chart_plot_area_marker(archive, "missing.xml", "14"))
+        self.assertIsNone(missing)
 
     def test_source_map_tracks_normalized_chart_plot_area(self):
         source = (
