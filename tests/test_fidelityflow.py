@@ -926,6 +926,10 @@ class SourceMappingTests(unittest.TestCase):
         self.assertNotIn("coordinates", summary)
         self.assertIn("image=1", self.module.format_source_location(mapped[0]))
 
+        image_map, image_summary = self.module.build_source_map("recognized OCR text\n", ".png")
+        self.assertEqual(image_summary["images"], 1)
+        self.assertIn("image=1", self.module.format_source_location(image_map[0]))
+
 
 if __name__ == "__main__":
     unittest.main()
