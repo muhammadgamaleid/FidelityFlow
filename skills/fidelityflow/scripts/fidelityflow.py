@@ -242,42 +242,107 @@ def extract_docx(path: Path) -> tuple[str, list[str]]:
                 append_part(label, ET.fromstring(read_ooxml_xml_member(archive, member)))
     return "\n\n".join(output).rstrip(), notes
 
-def _chart_cache_values(parent: ET.Element | None) -> list[str]:
+def _chart_cache_points(parent: ET.Element | None) -> list[tuple[int, str]]:
+    """Return cached chart points in source index order without inventing missing values."""
     if parent is None:
         return []
-    values = []
+    points = []
     for node in parent.iter():
-        if local_name(node.tag) in {"v", "t"} and node.text is not None:
-            values.append(node.text)
-    return values
+        if local_name(node.tag) == "pt":
+            index = node.attrib.get("idx", str(len(points)))
+            value = next((child.text for child in node.iter()
+                          if local_name(child.tag) in {"v", "t"} and child.text is not None), None)
+            try:
+                point_index = int(index)
+            except (TypeError, ValueError):
+                point_index = len(points)
+            if value is not None:
+                points.append((point_index, value))
+    if points:
+        return sorted(points, key=lambda item: item[0])
+    return [(index, node.text) for index, node in enumerate(parent.iter())
+            if local_name(node.tag) in {"v", "t"} and node.text is not None]
+
+
+def _chart_text(parent: ET.Element | None) -> str:
+    if parent is None:
+        return ""
+    values = [node.text.strip() for node in parent.iter()
+              if local_name(node.tag) in {"v", "t"} and node.text and node.text.strip()]
+    return " ".join(values)
+
+
+def _chart_title(parent: ET.Element | None) -> str:
+    if parent is None:
+        return ""
+    # Title text lives in rich text runs or cached string references.
+    values = [node.text.strip() for node in parent.iter()
+              if local_name(node.tag) in {"t", "v"} and node.text and node.text.strip()]
+    return " ".join(values)
+
+
+def _chart_axis_metadata(root: ET.Element) -> list[str]:
+    axes = []
+    for axis in root.iter():
+        kind = local_name(axis.tag)
+        if kind not in {"catAx", "dateAx", "valAx", "serAx"}:
+            continue
+        axis_id = next((node.attrib.get("val") for node in axis
+                        if local_name(node.tag) == "axId"), "")
+        title = next((node for node in axis if local_name(node.tag) == "title"), None)
+        title_text = _chart_title(title)
+        scaling = next((node for node in axis if local_name(node.tag) == "scaling"), None)
+        bounds = {}
+        if scaling is not None:
+            for node in scaling:
+                if local_name(node.tag) in {"min", "max"} and node.attrib.get("val") is not None:
+                    bounds[local_name(node.tag)] = node.attrib["val"]
+        label = f"{kind} id={axis_id or '?'}"
+        if title_text:
+            label += f' title="{title_text}"'
+        if bounds:
+            label += " " + " ".join(f"{key}={value}" for key, value in bounds.items())
+        axes.append(label)
+    return axes
 
 
 def parse_chart_xml(archive: zipfile.ZipFile, member: str) -> list[str]:
-    """Extract cached category/value labels from an OOXML chart without recalculation."""
+    """Extract chart type, title, axes, legend, and indexed cached series data."""
     root = ET.fromstring(read_ooxml_xml_member(archive, member))
-    output = []
+    output = [f"[CHART_TYPE {local_name(node.tag)[:-5]}]" for node in root.iter()
+              if local_name(node.tag) in {"barChart", "lineChart", "pieChart", "doughnutChart",
+                                          "scatterChart", "areaChart", "radarChart", "stockChart",
+                                          "bubbleChart", "surfaceChart"}]
+    title = next((node for node in root.iter() if local_name(node.tag) == "title"), None)
+    title_text = _chart_title(title)
+    if title_text:
+        output.append(f'[CHART_TITLE] {title_text}')
+    legend = next((node for node in root.iter() if local_name(node.tag) == "legend"), None)
+    if legend is not None:
+        position = next((node.attrib.get("val") for node in legend
+                         if local_name(node.tag) == "legendPos"), "")
+        output.append(f"[CHART_LEGEND present=true position={position or 'unspecified'}]")
+    axes = _chart_axis_metadata(root)
+    if axes:
+        output.append("[CHART_AXES]")
+        output.extend(axes)
     series_nodes = [node for node in root.iter() if local_name(node.tag) == "ser"]
     for index, series in enumerate(series_nodes, start=1):
         title_node = next((node for node in series if local_name(node.tag) == "tx"), None)
-        title_values = _chart_cache_values(title_node)
-        title = " ".join(title_values).strip() or f"Series {index}"
-        category_node = next(
-            (node for node in series if local_name(node.tag) in {"cat", "xVal"}),
-            None,
-        )
-        value_node = next(
-            (node for node in series if local_name(node.tag) in {"val", "yVal"}),
-            None,
-        )
-        categories = _chart_cache_values(category_node)
-        values = _chart_cache_values(value_node)
-        output.append(f"{title}:")
+        series_title = _chart_text(title_node) or f"Series {index}"
+        category_node = next((node for node in series if local_name(node.tag) in {"cat", "xVal"}), None)
+        value_node = next((node for node in series if local_name(node.tag) in {"val", "yVal"}), None)
+        categories = _chart_cache_points(category_node)
+        values = _chart_cache_points(value_node)
+        output.append(f"[CHART_SERIES index={index} name={json.dumps(series_title, ensure_ascii=False)}]")
         if categories:
-            output.append("  Categories: " + " | ".join(categories))
+            output.append("  Categories: " + " | ".join(f"{idx}={value}" for idx, value in categories))
         if values:
-            output.append("  Values: " + " | ".join(values))
+            output.append("  Values: " + " | ".join(f"{idx}={value}" for idx, value in values))
         if not categories and not values:
-            output.append("  No cached category/value data was embedded in this chart.")
+            output.append("  No cached category/value data was embedded in this series.")
+    if not series_nodes:
+        output.append("[CHART_DATA] No cached series were found.")
     return output
 
 
@@ -604,6 +669,18 @@ def parse_pptx(path: Path) -> tuple[str, list[str]]:
                                 paragraphs.append(paragraph_text)
                     output.extend(paragraphs)
 
+                elif kind == "cxnSp":
+                    connector = next((node for node in shape.iter() if local_name(node.tag) == "cNvCxnSpPr"), None)
+                    non_visual = next((node for node in connector or [] if local_name(node.tag) == "cNvPr"), None)
+                    start_connection = next((node for node in shape.iter() if local_name(node.tag) == "stCxn"), None)
+                    end_connection = next((node for node in shape.iter() if local_name(node.tag) == "endCxn"), None)
+                    connector_id = non_visual.attrib.get("id", "?") if non_visual is not None else "?"
+                    connector_name = re.sub(r"[^A-Za-z0-9_.-]+", "_", non_visual.attrib.get("name", "connector")) if non_visual is not None else "connector"
+                    start_id = start_connection.attrib.get("id", "") if start_connection is not None else ""
+                    end_id = end_connection.attrib.get("id", "") if end_connection is not None else ""
+                    start_idx = start_connection.attrib.get("idx", "") if start_connection is not None else ""
+                    end_idx = end_connection.attrib.get("idx", "") if end_connection is not None else ""
+                    output.append(f"[DIAGRAM_CONNECTOR id={connector_id} name={connector_name} start={start_id}:{start_idx} end={end_id}:{end_idx}]")
                 elif kind == "pic":
                     non_visual = next(
                         (node for node in shape.iter() if local_name(node.tag) == "cNvPr"),
