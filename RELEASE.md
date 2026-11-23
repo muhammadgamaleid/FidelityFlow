@@ -1,6 +1,6 @@
 # Release process
 
-This document describes how to prepare and verify a FidelityFlow release. It does not publish a GitHub Release or merge a pull request automatically.
+This document describes the release workflow and the checks required before distribution. A version tag triggers GitHub Actions to run tests, rebuild both Claude archives, generate SHA-256 checksums, and publish a GitHub Release.
 
 ## Version source
 
@@ -30,17 +30,14 @@ The release builder validates Skill frontmatter, required files, relative refere
 
 ## GitHub release checklist
 
-1. Review the release branch and ensure the intended changes are included.
-2. Run the full test suite and release archive validation.
-3. Confirm the package, Plugin, and changelog versions match.
-4. Review both ZIP archives and test the Skill upload and Plugin load path.
-5. Open/update the pull request and wait for all required CI jobs.
-6. After approval, merge the pull request according to the repository's release policy.
-7. Create a GitHub Release with tag `v0.6.0`, title `FidelityFlow v0.6.0`, and the matching changelog notes.
-8. Attach both ZIP files from `dist/` to the GitHub Release.
-9. Verify the release download links and installation instructions.
+1. Merge the approved release work into `main`.
+2. Confirm the full CI matrix and OCR/vision integration pass on the exact `main` commit.
+3. Confirm the package, Plugin, marketplace, and changelog versions match.
+4. Create and push the version tag (for this release: `v0.6.0`) on the verified `main` commit.
+5. The `release.yml` workflow reruns the test suite, validates and rebuilds both archives, creates `SHA256SUMS.txt`, and publishes the GitHub Release with all three assets.
+6. Verify the release page, archive downloads, checksums, and installation instructions.
 
-Do not create a tag or publish an archive until the release branch has passed CI and the maintainer has approved the release.
+Never publish a tag from an unverified commit. The workflow uses `GITHUB_SHA` as the release target when it needs to create a missing tag.
 
 ## Distribution notes
 
