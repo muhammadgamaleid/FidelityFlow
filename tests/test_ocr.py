@@ -44,7 +44,7 @@ class OptionalOCRTests(unittest.TestCase):
         words = [{"text": "Revenue", "confidence": 92, "left": 175, "top": 155,
                   "width": 65, "height": 18}]
         result = engine.analyze_visual_structure(image, words, image.size)
-        joined = "\\n".join(result)
+        joined = "\n".join(result)
         self.assertTrue(any("[VISION_OBJECT" in line for line in result), joined)
         self.assertIn("[VISION_CHART type=plot_candidate", joined)
         self.assertIn("label=Revenue", joined)
