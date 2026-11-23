@@ -9,11 +9,12 @@ from __future__ import annotations
 from collections import defaultdict
 from pathlib import Path
 import shutil
+import unicodedata
 
 MAX_IMAGE_BYTES = 100 * 1024 * 1024
 MAX_IMAGE_PIXELS = 80_000_000
 MAX_PDF_BYTES = 500 * 1024 * 1024
-OCR_TIMEOUT_SECONDS = 30
+OCR_TIMEOUT_SECONDS = 15
 OSD_TIMEOUT_SECONDS = 10
 OCR_ENGINE_VERSION = "tesseract-multipass-v2"
 
@@ -33,6 +34,24 @@ def _dependencies():
             'python -m pip install -e ".[ocr]".'
         ) from exc
     return pytesseract, Image, ImageEnhance, ImageFilter, ImageOps
+
+
+def _validate_languages(pytesseract, language: str) -> None:
+    requested = [part.strip() for part in language.split("+") if part.strip()]
+    if not requested:
+        raise ValueError("At least one Tesseract language code is required.")
+    try:
+        available = set(pytesseract.get_languages(config=""))
+    except Exception:
+        # Let the actual OCR call report an actionable runtime error if listing
+        # traineddata is unsupported by this Tesseract build.
+        return
+    missing = [item for item in requested if item not in available]
+    if missing:
+        raise RuntimeError(
+            "Missing Tesseract language data: " + ", ".join(missing)
+            + ". Install the corresponding traineddata files and retry."
+        )
 
 
 def _orientation(image, pytesseract) -> tuple[object, str | None]:
@@ -120,11 +139,12 @@ def _run_ocr(image, language: str, psm: int):
 
 def _best_ocr(image, language: str):
     pytesseract, Image, ImageEnhance, ImageFilter, ImageOps = _dependencies()
+    _validate_languages(pytesseract, language)
     oriented, rotation_note = _orientation(image, pytesseract)
     variants = _preprocess_variants(oriented, ImageOps, ImageEnhance, ImageFilter)
     best = None
     for _, candidate in variants:
-        for psm in (6, 11, 3):
+        for psm in (6, 11):
             try:
                 result = _run_ocr(candidate, language, psm)
             except RuntimeError:
@@ -132,6 +152,10 @@ def _best_ocr(image, language: str):
                 continue
             if best is None or result["score"] > best["score"]:
                 best = result
+            if result["confidence"] >= 85 and len(result["text"]) >= 12:
+                break
+        if best is not None and best["confidence"] >= 85 and len(best["text"]) >= 12:
+            break
     if best is None:
         raise RuntimeError("All bounded Tesseract OCR attempts failed or timed out.")
     notes = []
@@ -152,7 +176,15 @@ def _layout_lines(words: list[dict]) -> list[str]:
         groups[key].append(word)
     lines = []
     for key in sorted(groups):
-        row = sorted(groups[key], key=lambda item: item["left"])
+        row = groups[key]
+        sample = " ".join(item["text"] for item in row)
+        rtl_chars = sum(
+            1 for char in sample
+            if unicodedata.bidirectional(char) in {"R", "AL", "AN"}
+        )
+        strong_chars = sum(1 for char in sample if char.isalpha() or char.isdigit())
+        rtl = strong_chars > 0 and rtl_chars / strong_chars > 0.5
+        row = sorted(row, key=lambda item: item["left"], reverse=rtl)
         content = " ".join(item["text"] for item in row)
         if not content:
             continue
