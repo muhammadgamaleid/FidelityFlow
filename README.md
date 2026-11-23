@@ -186,7 +186,7 @@ The installer backs up an existing settings file before updating it. Hook archiv
 
 ### Option B — Install the Plugin from the GitHub marketplace
 
-The repository includes a Claude Code marketplace manifest. The GitHub repository must be reachable by your Git credentials; private repositories require you to have access.
+The repository includes a Claude Code marketplace manifest. The GitHub repository must be reachable by your Git credentials; private repositories require you to have access. **This repository is currently private**, so only authorized GitHub users can install from its marketplace or download its releases. Public distribution requires the repository owner to change visibility or publish the Plugin through Anthropic's directory.
 
 1. Add the FidelityFlow marketplace:
 
