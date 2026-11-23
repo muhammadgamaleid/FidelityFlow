@@ -596,9 +596,9 @@ def _chart_plot_area_marker(archive: zipfile.ZipFile, member: str, object_id: st
 
 def parse_pptx(path: Path) -> tuple[str, list[str]]:
     notes = [
-        "PPTX extraction preserves slide order, text, basic table content, shape alt text, speaker notes, and cached chart data.",
-        "Embedded picture object bounds are recorded in native slide EMUs when available; image content, diagrams, animation, and full visual layout are not reconstructed.",
-        "Chart data is read from embedded cached values and may be stale if the workbook/chart source was not recalculated before saving.",
+        "PPTX extraction preserves slide order, text, basic table content, shape alt text, speaker notes, cached chart metadata/series, and native connector endpoints.",
+        "Embedded picture bounds and native diagram connector endpoint references are recorded when available. Raster image semantics, animation, and full visual layout are not reconstructed.",
+        "Chart family, cached title/legend/axis metadata, and indexed cached series points are extracted when present. Cached values may be stale if the workbook/chart source was not recalculated before saving; formulas are not recalculated.",
     ]
     output: list[str] = []
     with zipfile.ZipFile(path) as archive:
